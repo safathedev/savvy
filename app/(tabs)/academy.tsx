@@ -1,637 +1,386 @@
-// ─────────────────────────────────────────────────────────────
-// Savvy — Academy Screen (Complete with Stats Card)
-// ─────────────────────────────────────────────────────────────
-
-import { Ionicons } from "@expo/vector-icons";
+﻿import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { hatchColors } from "@/constants/theme";
-import { momsInvestmentJourney } from "@/data/moms-investment-journey";
+import { hatchColors, hatchShadows } from "@/constants/theme";
+import {
+  CourseLevel,
+  getCourseProgress,
+  getFirstIncompleteLesson,
+  getLevelProgress,
+  isLessonUnlocked,
+  momsInvestmentJourney,
+} from "@/data/moms-investment-journey";
 import { useApp } from "@/lib/app-context";
 
+function levelLabel(levelId: CourseLevel["level_id"]): string {
+  if (levelId === "beginner") return "Beginner";
+  if (levelId === "intermediate") return "Intermediate";
+  return "Advanced";
+}
+
+function levelHeadline(levelId: CourseLevel["level_id"]): string {
+  if (levelId === "beginner") return "CALM FOUNDATION";
+  if (levelId === "intermediate") return "STABILITY SYSTEMS";
+  return "SMART GROWTH";
+}
+
 export default function AcademyScreen() {
-    const insets = useSafeAreaInsets();
-    const router = useRouter();
-    const { completedLessons } = useApp();
-    const [activeLevel, setActiveLevel] = useState<"beginner" | "intermediate" | "advanced">("beginner");
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const { completedLessons } = useApp();
+  const [activeLevel, setActiveLevel] = useState<CourseLevel["level_id"]>("beginner");
 
-    const currentLevel = momsInvestmentJourney.find((l) => l.level_id === activeLevel);
+  const currentLevel = useMemo(
+    () => momsInvestmentJourney.find((level) => level.level_id === activeLevel),
+    [activeLevel]
+  );
 
-    // Find next lesson to highlight (first uncompleted lesson)
-    let nextLessonId: string | null = null;
-    currentLevel?.modules.forEach((m) => {
-        m.lessons.forEach((l) => {
-            if (!nextLessonId && !completedLessons.includes(l.lesson_id)) {
-                nextLessonId = l.lesson_id;
+  const nextLesson = getFirstIncompleteLesson(completedLessons);
+  const courseProgress = getCourseProgress(completedLessons);
+
+  const handleOpenLesson = (lessonId: string) => {
+    const unlocked = isLessonUnlocked(lessonId, completedLessons);
+    if (!unlocked && !completedLessons.includes(lessonId)) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      return;
+    }
+
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push(`/lesson/${lessonId}` as any);
+  };
+
+  return (
+    <View style={s.root}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{
+          paddingTop: insets.top + 16,
+          paddingBottom: insets.bottom + 40,
+          paddingHorizontal: 20,
+        }}
+      >
+        <Animated.View entering={FadeInDown.duration(350)}>
+          <Text style={s.title}>Academy</Text>
+          <Text style={s.subtitle}>Calm, practical lessons for real-life money decisions.</Text>
+        </Animated.View>
+
+        <Animated.View entering={FadeInDown.delay(50).duration(350)} style={s.progressCard}>
+          <View style={s.progressRow}>
+            <View>
+              <Text style={s.progressLabel}>Course progress</Text>
+              <Text style={s.progressValue}>
+                {courseProgress.completed}/{courseProgress.total} lessons
+              </Text>
+            </View>
+            <Text style={s.progressPercent}>{courseProgress.percentage}%</Text>
+          </View>
+          <View style={s.progressTrack}>
+            <View style={[s.progressFill, { width: `${courseProgress.percentage}%` }]} />
+          </View>
+          {nextLesson ? (
+            <Text style={s.nextText}>Up next: {nextLesson.title}</Text>
+          ) : (
+            <Text style={s.nextText}>You completed the full academy. Great job.</Text>
+          )}
+        </Animated.View>
+
+        <Animated.View entering={FadeInDown.delay(100).duration(350)} style={s.levelTabs}>
+          {(momsInvestmentJourney.map((level) => level.level_id) as CourseLevel["level_id"][]).map(
+            (levelId) => {
+              const progress = getLevelProgress(levelId, completedLessons);
+              const active = activeLevel === levelId;
+              return (
+                <Pressable
+                  key={levelId}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setActiveLevel(levelId);
+                  }}
+                  style={[s.levelTab, active && s.levelTabActive]}
+                >
+                  <Text style={[s.levelTabText, active && s.levelTabTextActive]}>
+                    {levelLabel(levelId)}
+                  </Text>
+                  <Text style={[s.levelTabMeta, active && s.levelTabMetaActive]}>
+                    {progress.percentage}%
+                  </Text>
+                </Pressable>
+              );
             }
-        });
-    });
+          )}
+        </Animated.View>
 
-    const nav = (path: string, isLocked: boolean) => {
-        if (isLocked) {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-            return;
-        }
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        router.push(path as any);
-    };
+        <Animated.View entering={FadeInDown.delay(120).duration(350)} style={s.levelIntro}>
+          <Text style={s.levelHero}>{levelHeadline(activeLevel)}</Text>
+          <Text style={s.levelIntroMeta}>{levelLabel(activeLevel)} learning path</Text>
+          <Text style={s.levelIntroText}>{currentLevel?.goal}</Text>
+        </Animated.View>
 
-    // Calculate progress
-    const totalLessons = currentLevel?.modules.reduce((acc, m) => acc + m.lessons.length, 0) || 1;
-    const completedCount = currentLevel?.modules.reduce(
-        (acc, m) => acc + m.lessons.filter((l) => completedLessons.includes(l.lesson_id)).length,
-        0
-    ) || 0;
-    const progress = Math.round((completedCount / totalLessons) * 100);
+        {currentLevel?.modules.map((module, moduleIndex) => (
+          <Animated.View
+            key={module.module_id}
+            entering={FadeInDown.delay(160 + moduleIndex * 40).duration(350)}
+            style={s.moduleSection}
+          >
+            <Text style={s.moduleTitle}>{module.title}</Text>
 
-    // Calculate overall stats (across all levels)
-    const allLessons = momsInvestmentJourney.reduce(
-        (acc, level) => acc + level.modules.reduce((m, mod) => m + mod.lessons.length, 0),
-        0
-    );
-    const allCompleted = momsInvestmentJourney.reduce(
-        (acc, level) =>
-            acc +
-            level.modules.reduce(
-                (m, mod) => m + mod.lessons.filter((l) => completedLessons.includes(l.lesson_id)).length,
-                0
-            ),
-        0
-    );
+            {module.lessons.map((lesson) => {
+              const completed = completedLessons.includes(lesson.lesson_id);
+              const unlocked = isLessonUnlocked(lesson.lesson_id, completedLessons);
+              const locked = !completed && !unlocked;
+              const isNext = nextLesson?.lesson_id === lesson.lesson_id;
 
-    return (
-        <View style={s.root}>
-            <ScrollView
-                contentContainerStyle={{
-                    paddingTop: insets.top + 16,
-                    paddingBottom: insets.bottom + 40,
-                    paddingHorizontal: 24,
-                }}
-                showsVerticalScrollIndicator={false}
-            >
-                {/* ── Header ──────────────────────────────── */}
-                <Animated.View entering={FadeInDown.duration(500)} style={s.headerSection}>
-                    <View>
-                        <Text style={s.greeting}>Investment Journey</Text>
-                        <Text style={s.subtitle}>{currentLevel?.goal || "Learn at your own pace"}</Text>
-                    </View>
-                </Animated.View>
-
-                {/* ── Stats Card (Always Visible) ──────────────────────── */}
-                <Animated.View entering={FadeInDown.delay(100).duration(600)}>
-                    <View style={s.statsCard}>
-                        {/* Top Row: Overall Progress */}
-                        <View style={s.statsRow}>
-                            <View style={s.statBlock}>
-                                <Text style={s.statLabel}>LESSONS</Text>
-                                <Text style={s.statValue}>
-                                    {allCompleted}/{allLessons}
-                                </Text>
-                            </View>
-                            <View style={s.statDivider} />
-                            <View style={s.statBlock}>
-                                <Text style={s.statLabel}>XP EARNED</Text>
-                                <Text style={s.statValue}>{allCompleted * 10}</Text>
-                            </View>
-                            <View style={s.statDivider} />
-                            <View style={s.statBlock}>
-                                <Text style={s.statLabel}>STREAK</Text>
-                                <View style={s.streakRow}>
-                                    <Ionicons name="flame" size={18} color="#FFFFFF" />
-                                    <Text style={s.statValue}>0</Text>
-                                </View>
-                            </View>
-                        </View>
-
-                        {/* Progress Bar */}
-                        {allCompleted > 0 && (
-                            <View style={s.progressSection}>
-                                <View style={s.progressBarOuter}>
-                                    <Animated.View
-                                        style={[
-                                            s.progressBarInner,
-                                            { width: `${Math.round((allCompleted / allLessons) * 100)}%` },
-                                        ]}
-                                        entering={FadeInDown.delay(200).duration(800)}
-                                    />
-                                </View>
-                                <Text style={s.progressText}>
-                                    {Math.round((allCompleted / allLessons) * 100)}% Complete
-                                </Text>
-                            </View>
-                        )}
-
-                        {/* Badges Row */}
-                        <View style={s.badgesSection}>
-                            <Text style={s.badgesLabel}>BADGES</Text>
-                            <View style={s.badgesRow}>
-                                {allCompleted > 0 && (
-                                    <View style={s.badge}>
-                                        <Ionicons name="footsteps" size={20} color="#FFFFFF" />
-                                    </View>
-                                )}
-                                {allCompleted >= 3 && (
-                                    <View style={s.badge}>
-                                        <Ionicons name="calculator" size={20} color="#FFFFFF" />
-                                    </View>
-                                )}
-                                {allCompleted >= 5 && (
-                                    <View style={s.badge}>
-                                        <Ionicons name="search" size={20} color="#FFFFFF" />
-                                    </View>
-                                )}
-                                {/* Empty badge slots */}
-                                {allCompleted < 5 && (
-                                    <>
-                                        <View style={s.badgeEmpty}>
-                                            <Ionicons name="lock-closed" size={16} color="rgba(255, 255, 255, 0.5)" />
-                                        </View>
-                                        <View style={s.badgeEmpty}>
-                                            <Ionicons name="lock-closed" size={16} color="rgba(255, 255, 255, 0.5)" />
-                                        </View>
-                                    </>
-                                )}
-                            </View>
-                        </View>
-                    </View>
-                </Animated.View>
-
-                {/* ── Level Tabs ──────────────────────────── */}
-                <Animated.View entering={FadeInDown.delay(150).duration(600)}>
-                    <View style={s.tabs}>
-                        {(["beginner", "intermediate", "advanced"] as const).map((lvl) => {
-                            const level = momsInvestmentJourney.find((l) => l.level_id === lvl);
-                            const levelLessons = level?.modules.reduce((acc, m) => acc + m.lessons.length, 0) || 0;
-                            const levelCompleted =
-                                level?.modules.reduce(
-                                    (acc, m) => acc + m.lessons.filter((l) => completedLessons.includes(l.lesson_id)).length,
-                                    0
-                                ) || 0;
-                            const levelProgress = levelLessons > 0 ? Math.round((levelCompleted / levelLessons) * 100) : 0;
-
-                            return (
-                                <Pressable
-                                    key={lvl}
-                                    onPress={() => {
-                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                        setActiveLevel(lvl);
-                                    }}
-                                    style={[s.tab, activeLevel === lvl && s.tabActive]}
-                                >
-                                    <Text style={[s.tabText, activeLevel === lvl && s.tabTextActive]}>
-                                        {lvl.charAt(0).toUpperCase() + lvl.slice(1)}
-                                    </Text>
-                                    {levelProgress > 0 && (
-                                        <Text style={[s.tabProgress, activeLevel === lvl && s.tabProgressActive]}>
-                                            {levelProgress}%
-                                        </Text>
-                                    )}
-                                </Pressable>
-                            );
-                        })}
-                    </View>
-                </Animated.View>
-
-                {/* ── Lessons by Module ─────────────────────────────── */}
-                {currentLevel?.modules.map((module, moduleIdx) => (
-                    <Animated.View
-                        key={module.module_id}
-                        entering={FadeInDown.delay(200 + moduleIdx * 50).duration(600)}
-                        style={s.moduleSection}
+              return (
+                <Pressable key={lesson.lesson_id} onPress={() => handleOpenLesson(lesson.lesson_id)}>
+                  {({ pressed }) => (
+                    <View
+                      style={[
+                        s.lessonCard,
+                        locked && s.lessonCardLocked,
+                        completed && s.lessonCardCompleted,
+                        isNext && s.lessonCardNext,
+                        pressed && !locked && s.pressed,
+                      ]}
                     >
-                        <Text style={s.moduleTitle}>{module.title}</Text>
+                      <View style={[s.lessonIcon, locked && s.lessonIconLocked]}>
+                        <Ionicons
+                          name={completed ? "checkmark" : locked ? "lock-closed" : "play"}
+                          size={16}
+                          color={locked ? hatchColors.text.tertiary : "#FFFFFF"}
+                        />
+                      </View>
 
-                        {module.lessons.map((lesson) => {
-                            const isDone = completedLessons.includes(lesson.lesson_id);
-                            const isNext = lesson.lesson_id === nextLessonId;
-                            const isLocked = !isDone && !isNext;
-
-                            return (
-                                <Pressable key={lesson.lesson_id} onPress={() => nav(`/lesson/${lesson.lesson_id}`, isLocked)}>
-                                    {({ pressed }) => (
-                                        <View
-                                            style={[
-                                                s.lessonCard,
-                                                isNext && s.lessonCardActive,
-                                                isDone && s.lessonCardDone,
-                                                isLocked && s.lessonCardLocked,
-                                                pressed && !isLocked && s.pressed,
-                                            ]}
-                                        >
-                                            {/* Icon */}
-                                            <View style={[s.lessonIcon, isNext && s.lessonIconActive, isDone && s.lessonIconDone, isLocked && s.lessonIconLocked]}>
-                                                <Ionicons
-                                                    name={isDone ? "checkmark-circle" : isLocked ? "lock-closed" : "play-circle"}
-                                                    size={24}
-                                                    color={isLocked ? hatchColors.primary.default : "#FFFFFF"}
-                                                />
-                                            </View>
-
-                                            {/* Content */}
-                                            <View style={s.lessonContent}>
-                                                <View style={s.lessonTitleRow}>
-                                                    <Text style={[s.lessonTitle, isNext && s.textWhite]} numberOfLines={1}>
-                                                        {lesson.title}
-                                                    </Text>
-                                                    {isDone && (
-                                                        <View style={s.doneBadge}>
-                                                            <Ionicons name="checkmark" size={12} color={hatchColors.status.success} />
-                                                        </View>
-                                                    )}
-                                                </View>
-                                                <Text style={[s.lessonMeta, isNext && s.textWhiteMuted]} numberOfLines={1}>
-                                                    {lesson.duration} • {lesson.objective}
-                                                </Text>
-
-                                                {/* Show quiz and task count */}
-                                                {(lesson.quiz || lesson.interactive_tasks) && (
-                                                    <View style={s.lessonFeatures}>
-                                                        {lesson.interactive_tasks && lesson.interactive_tasks.length > 0 && (
-                                                            <View style={[s.featurePill, isNext && s.featurePillActive]}>
-                                                                <Ionicons
-                                                                    name="create-outline"
-                                                                    size={12}
-                                                                    color={isNext ? "rgba(255,255,255,0.9)" : hatchColors.text.tertiary}
-                                                                />
-                                                                <Text style={[s.featurePillText, isNext && s.textWhiteMuted]}>
-                                                                    {lesson.interactive_tasks.length}{" "}
-                                                                    {lesson.interactive_tasks.length === 1 ? "task" : "tasks"}
-                                                                </Text>
-                                                            </View>
-                                                        )}
-                                                        {lesson.quiz && (
-                                                            <View style={[s.featurePill, isNext && s.featurePillActive]}>
-                                                                <Ionicons
-                                                                    name="help-circle-outline"
-                                                                    size={12}
-                                                                    color={isNext ? "rgba(255,255,255,0.9)" : hatchColors.text.tertiary}
-                                                                />
-                                                                <Text style={[s.featurePillText, isNext && s.textWhiteMuted]}>Quiz</Text>
-                                                            </View>
-                                                        )}
-                                                    </View>
-                                                )}
-                                            </View>
-
-                                            {/* Chevron (only for unlocked) */}
-                                            {!isLocked && (
-                                                <Ionicons
-                                                    name="chevron-forward"
-                                                    size={20}
-                                                    color={isNext ? "#FFFFFF" : hatchColors.text.tertiary}
-                                                />
-                                            )}
-                                        </View>
-                                    )}
-                                </Pressable>
-                            );
-                        })}
-                    </Animated.View>
-                ))}
-
-                {/* ── Empty State ─────────────────────────── */}
-                {currentLevel && currentLevel.modules.length === 0 && (
-                    <Animated.View entering={FadeInDown.delay(200).duration(600)}>
-                        <View style={s.emptyState}>
-                            <Ionicons name="rocket-outline" size={48} color={hatchColors.text.tertiary} />
-                            <Text style={s.emptyTitle}>Coming Soon</Text>
-                            <Text style={s.emptyText}>{currentLevel.title} lessons are being prepared for you.</Text>
+                      <View style={s.lessonBody}>
+                        <View style={s.lessonTopRow}>
+                          <Text style={s.lessonTitle} numberOfLines={1}>
+                            {lesson.title}
+                          </Text>
+                          {isNext && !completed && (
+                            <View style={s.nextBadge}>
+                              <Text style={s.nextBadgeText}>Next</Text>
+                            </View>
+                          )}
                         </View>
-                    </Animated.View>
-                )}
-            </ScrollView>
-        </View>
-    );
+                        <Text style={s.lessonMeta} numberOfLines={2}>
+                          {lesson.duration} - {lesson.objective}
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+                </Pressable>
+              );
+            })}
+          </Animated.View>
+        ))}
+      </ScrollView>
+    </View>
+  );
 }
 
 const s = StyleSheet.create({
-    root: {
-        flex: 1,
-        backgroundColor: hatchColors.background.primary,
-    },
-
-    // Header
-    headerSection: {
-        marginBottom: 24,
-    },
-    greeting: {
-        fontSize: 32,
-        fontWeight: "800",
-        color: hatchColors.text.primary,
-        marginBottom: 8,
-    },
-    subtitle: {
-        fontSize: 15,
-        color: hatchColors.text.secondary,
-        lineHeight: 22,
-        fontWeight: "500",
-    },
-
-    // Stats Card
-    statsCard: {
-        backgroundColor: hatchColors.primary.default,
-        borderRadius: 24,
-        padding: 24,
-        marginBottom: 24,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8,
-        elevation: 3,
-    },
-    statsRow: {
-        flexDirection: "row",
-        alignItems: "center",
-        marginBottom: 20,
-    },
-    statBlock: {
-        flex: 1,
-        alignItems: "center",
-    },
-    statLabel: {
-        fontSize: 10,
-        fontWeight: "800",
-        color: "rgba(255, 255, 255, 0.7)",
-        letterSpacing: 0.8,
-        marginBottom: 6,
-    },
-    statValue: {
-        fontSize: 24,
-        fontWeight: "800",
-        color: "#FFFFFF",
-    },
-    statDivider: {
-        width: 1,
-        height: 32,
-        backgroundColor: "rgba(255, 255, 255, 0.2)",
-    },
-    streakRow: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 4,
-    },
-    progressSection: {
-        marginBottom: 20,
-    },
-    progressBarOuter: {
-        height: 8,
-        backgroundColor: "rgba(255, 255, 255, 0.2)",
-        borderRadius: 4,
-        overflow: "hidden",
-        marginBottom: 8,
-    },
-    progressBarInner: {
-        height: "100%",
-        backgroundColor: "#FFFFFF",
-        borderRadius: 4,
-    },
-    progressText: {
-        fontSize: 12,
-        fontWeight: "700",
-        color: "rgba(255, 255, 255, 0.9)",
-        textAlign: "center",
-    },
-    badgesSection: {
-        borderTopWidth: 1,
-        borderTopColor: "rgba(255, 255, 255, 0.2)",
-        paddingTop: 16,
-    },
-    badgesLabel: {
-        fontSize: 10,
-        fontWeight: "800",
-        color: "rgba(255, 255, 255, 0.7)",
-        letterSpacing: 0.8,
-        marginBottom: 12,
-    },
-    badgesRow: {
-        flexDirection: "row",
-        gap: 12,
-    },
-    badge: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
-        backgroundColor: "rgba(255, 255, 255, 0.2)",
-        alignItems: "center",
-        justifyContent: "center",
-        borderWidth: 2,
-        borderColor: "#FFFFFF",
-    },
-    badgeEmpty: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
-        backgroundColor: "rgba(255, 255, 255, 0.1)",
-        alignItems: "center",
-        justifyContent: "center",
-        borderWidth: 1,
-        borderColor: "rgba(255, 255, 255, 0.3)",
-        opacity: 0.6,
-    },
-
-    // Tabs
-    tabs: {
-        flexDirection: "row",
-        backgroundColor: hatchColors.background.secondary,
-        borderRadius: 16,
-        padding: 4,
-        marginBottom: 24,
-        gap: 4,
-    },
-    tab: {
-        flex: 1,
-        paddingVertical: 12,
-        paddingHorizontal: 8,
-        alignItems: "center",
-        borderRadius: 12,
-    },
-    tabActive: {
-        backgroundColor: "#FFFFFF",
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.04,
-        shadowRadius: 3,
-        elevation: 1,
-    },
-    tabText: {
-        fontSize: 13,
-        fontWeight: "600",
-        color: hatchColors.text.tertiary,
-        marginBottom: 2,
-    },
-    tabTextActive: {
-        color: hatchColors.text.primary,
-        fontWeight: "700",
-    },
-    tabProgress: {
-        fontSize: 10,
-        fontWeight: "700",
-        color: hatchColors.text.tertiary,
-    },
-    tabProgressActive: {
-        color: hatchColors.primary.default,
-    },
-
-    // Module Section
-    moduleSection: {
-        marginBottom: 32,
-    },
-    moduleTitle: {
-        fontSize: 13,
-        fontWeight: "800",
-        color: hatchColors.text.tertiary,
-        letterSpacing: 0.5,
-        marginBottom: 16,
-        textTransform: "uppercase",
-    },
-
-    // Lesson Card
-    lessonCard: {
-        flexDirection: "row",
-        alignItems: "center",
-        backgroundColor: "#FFFFFF",
-        borderRadius: 20,
-        padding: 16,
-        marginBottom: 12,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.04,
-        shadowRadius: 3,
-        elevation: 1,
-    },
-    lessonCardActive: {
-        backgroundColor: hatchColors.primary.default,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.06,
-        shadowRadius: 6,
-        elevation: 2,
-    },
-    lessonCardDone: {
-        backgroundColor: hatchColors.background.secondary,
-    },
-    lessonCardLocked: {
-        backgroundColor: "#E8E8E8",
-    },
-
-    // Lesson Icon
-    lessonIcon: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
-        backgroundColor: hatchColors.primary.muted,
-        alignItems: "center",
-        justifyContent: "center",
-        marginRight: 16,
-    },
-    lessonIconActive: {
-        backgroundColor: "rgba(255, 255, 255, 0.25)",
-    },
-    lessonIconDone: {
-        backgroundColor: "rgba(16, 185, 129, 0.15)",
-    },
-    lessonIconLocked: {
-        backgroundColor: hatchColors.primary.muted,
-    },
-
-    // Lesson Content
-    lessonContent: {
-        flex: 1,
-    },
-    lessonTitleRow: {
-        flexDirection: "row",
-        alignItems: "center",
-        marginBottom: 4,
-        gap: 8,
-    },
-    lessonTitle: {
-        fontSize: 16,
-        fontWeight: "700",
-        color: hatchColors.text.primary,
-        flex: 1,
-    },
-    doneBadge: {
-        width: 20,
-        height: 20,
-        borderRadius: 10,
-        backgroundColor: "rgba(16, 185, 129, 0.15)",
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    lessonMeta: {
-        fontSize: 13,
-        color: hatchColors.text.secondary,
-        fontWeight: "500",
-        marginBottom: 6,
-    },
-    lessonFeatures: {
-        flexDirection: "row",
-        gap: 8,
-        marginTop: 4,
-    },
-    featurePill: {
-        flexDirection: "row",
-        alignItems: "center",
-        backgroundColor: hatchColors.background.secondary,
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 8,
-        gap: 4,
-    },
-    featurePillActive: {
-        backgroundColor: "rgba(255, 255, 255, 0.2)",
-    },
-    featurePillText: {
-        fontSize: 11,
-        fontWeight: "600",
-        color: hatchColors.text.tertiary,
-    },
-
-    // Lock Icon
-    lockIcon: {
-        width: 32,
-        height: 32,
-        borderRadius: 16,
-        backgroundColor: hatchColors.background.secondary,
-        alignItems: "center",
-        justifyContent: "center",
-    },
-
-    // Text Colors
-    textWhite: {
-        color: "#FFFFFF",
-    },
-    textWhiteMuted: {
-        color: "rgba(255, 255, 255, 0.8)",
-    },
-
-    // Empty State
-    emptyState: {
-        alignItems: "center",
-        paddingVertical: 60,
-    },
-    emptyTitle: {
-        fontSize: 20,
-        fontWeight: "700",
-        color: hatchColors.text.primary,
-        marginTop: 16,
-        marginBottom: 8,
-    },
-    emptyText: {
-        fontSize: 15,
-        color: hatchColors.text.secondary,
-        textAlign: "center",
-        maxWidth: 280,
-    },
-
-    // Pressed State
-    pressed: {
-        opacity: 0.8,
-        transform: [{ scale: 0.98 }],
-    },
+  root: {
+    flex: 1,
+    backgroundColor: hatchColors.background.primary,
+  },
+  title: {
+    fontSize: 30,
+    fontWeight: "800",
+    color: hatchColors.text.primary,
+  },
+  subtitle: {
+    marginTop: 4,
+    fontSize: 14,
+    color: hatchColors.text.secondary,
+    lineHeight: 20,
+  },
+  progressCard: {
+    marginTop: 18,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: hatchColors.border.default,
+    borderRadius: 20,
+    padding: 16,
+    ...hatchShadows.sm,
+  },
+  progressRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  progressLabel: {
+    fontSize: 12,
+    color: hatchColors.text.tertiary,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+  progressValue: {
+    marginTop: 4,
+    fontSize: 20,
+    fontWeight: "800",
+    color: hatchColors.text.primary,
+  },
+  progressPercent: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: hatchColors.primary.default,
+  },
+  progressTrack: {
+    marginTop: 12,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: hatchColors.background.secondary,
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: "100%",
+    borderRadius: 999,
+    backgroundColor: hatchColors.primary.default,
+  },
+  nextText: {
+    marginTop: 10,
+    fontSize: 12,
+    color: hatchColors.text.secondary,
+    fontWeight: "600",
+  },
+  levelTabs: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 16,
+    marginBottom: 10,
+  },
+  levelTab: {
+    flex: 1,
+    borderRadius: 14,
+    paddingVertical: 10,
+    alignItems: "center",
+    backgroundColor: hatchColors.background.secondary,
+  },
+  levelTabActive: {
+    backgroundColor: hatchColors.primary.default,
+  },
+  levelTabText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: hatchColors.text.secondary,
+  },
+  levelTabTextActive: {
+    color: "#FFFFFF",
+  },
+  levelTabMeta: {
+    marginTop: 2,
+    fontSize: 11,
+    fontWeight: "700",
+    color: hatchColors.text.tertiary,
+  },
+  levelTabMetaActive: {
+    color: "rgba(255,255,255,0.85)",
+  },
+  levelIntro: {
+    marginTop: 2,
+    marginBottom: 2,
+  },
+  levelHero: {
+    fontSize: 29,
+    fontWeight: "900",
+    color: hatchColors.text.primary,
+    letterSpacing: -0.6,
+  },
+  levelIntroMeta: {
+    marginTop: 2,
+    fontSize: 13,
+    fontWeight: "800",
+    color: hatchColors.text.secondary,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  levelIntroText: {
+    marginTop: 6,
+    fontSize: 13,
+    color: hatchColors.text.secondary,
+    lineHeight: 20,
+  },
+  moduleSection: {
+    marginTop: 18,
+  },
+  moduleTitle: {
+    marginBottom: 10,
+    fontSize: 12,
+    fontWeight: "800",
+    color: hatchColors.text.tertiary,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  lessonCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: hatchColors.border.default,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 10,
+    ...hatchShadows.sm,
+  },
+  lessonCardLocked: {
+    opacity: 0.6,
+  },
+  lessonCardCompleted: {
+    backgroundColor: hatchColors.background.secondary,
+  },
+  lessonCardNext: {
+    borderColor: hatchColors.primary.default,
+  },
+  lessonIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: hatchColors.primary.default,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+  },
+  lessonIconLocked: {
+    backgroundColor: hatchColors.background.tertiary,
+  },
+  lessonBody: {
+    flex: 1,
+  },
+  lessonTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  lessonTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: "800",
+    color: hatchColors.text.primary,
+    marginRight: 8,
+  },
+  lessonMeta: {
+    marginTop: 4,
+    fontSize: 12,
+    color: hatchColors.text.secondary,
+    lineHeight: 18,
+  },
+  nextBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: hatchColors.primary.muted,
+  },
+  nextBadgeText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: hatchColors.primary.default,
+  },
+  pressed: {
+    transform: [{ scale: 0.99 }],
+  },
 });

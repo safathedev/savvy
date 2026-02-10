@@ -7,10 +7,12 @@ export const STORAGE_KEYS = {
   APPLIED_TIPS: "@savvy_applied_tips",
   STREAK_DATA: "@savvy_streak_data",
   PREMIUM_STATUS: "@savvy_premium_status",
+  PREMIUM_RESET_MARKER: "@savvy_premium_reset_marker_v1",
   NOTIFICATION_SETTINGS: "@savvy_notification_settings",
   THEME_MODE: "@savvy_theme_mode",
   MOOD_CHECKIN: "@savvy_mood_checkin",
   CALENDAR_EVENTS: "@savvy_calendar_events",
+  CALENDAR_CUSTOM_CATEGORIES: "@savvy_calendar_custom_categories",
   SAVINGS_GOALS: "@savvy_savings_goals",
 } as const;
 

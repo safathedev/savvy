@@ -5,7 +5,7 @@ import React from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 interface QuickChipsProps {
-    onSelectTemplate: (template: typeof QUICK_TEMPLATES[0]) => void;
+    onSelectTemplate: (template: (typeof QUICK_TEMPLATES)[number]) => void;
 }
 
 export function QuickChips({ onSelectTemplate }: QuickChipsProps) {

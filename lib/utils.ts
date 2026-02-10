@@ -1,4 +1,4 @@
-// Utility functions for Savvy App
+﻿// Utility functions for Savvy App
 
 import { type ClassValue, clsx } from "clsx";
 
@@ -22,7 +22,7 @@ export function formatDate(date: Date | string): string {
   if (d.toDateString() === now.toDateString()) {
     return "Today";
   }
-  
+
   if (d.toDateString() === yesterday.toDateString()) {
     return "Yesterday";
   }
@@ -46,7 +46,7 @@ export function generateId(): string {
  */
 export function getGreeting(): string {
   const hour = new Date().getHours();
-  
+
   if (hour < 12) {
     return "Good morning";
   }
@@ -72,10 +72,14 @@ export function delay(ms: number): Promise<void> {
 }
 
 /**
- * Get today's date as ISO string (date only)
+ * Get today's date as local ISO-like date string (YYYY-MM-DD)
  */
 export function getTodayDate(): string {
-  return new Date().toISOString().split("T")[0];
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 /**
@@ -92,7 +96,7 @@ export function isSameDay(date1: Date | string, date2: Date | string): boolean {
  */
 export function getDayIndex(date: Date = new Date()): number {
   const day = date.getDay();
-  return day === 0 ? 6 : day - 1; // Convert Sunday (0) to 6, Monday (1) to 0
+  return day === 0 ? 6 : day - 1;
 }
 
 /**
@@ -100,11 +104,11 @@ export function getDayIndex(date: Date = new Date()): number {
  */
 export function formatCurrency(amount: number, currency: string = "GBP"): string {
   const symbols: Record<string, string> = {
-    GBP: "£",
+    GBP: "\u00A3",
     USD: "$",
-    EUR: "€",
+    EUR: "\u20AC",
   };
-  
-  const symbol = symbols[currency] || "£";
+
+  const symbol = symbols[currency] || "\u00A3";
   return `${symbol}${amount.toFixed(2)}`;
 }

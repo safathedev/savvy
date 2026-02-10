@@ -1,4 +1,4 @@
-// Currency definitions for Savvy App
+﻿// Currency definitions for Savvy App
 
 export type CurrencyCode = "GBP" | "USD" | "EUR";
 
@@ -12,7 +12,7 @@ export interface Currency {
 export const currencies: Record<CurrencyCode, Currency> = {
   GBP: {
     code: "GBP",
-    symbol: "£",
+    symbol: "\u00A3",
     name: "British Pound",
     locale: "en-GB",
   },
@@ -24,9 +24,9 @@ export const currencies: Record<CurrencyCode, Currency> = {
   },
   EUR: {
     code: "EUR",
-    symbol: "€",
+    symbol: "\u20AC",
     name: "Euro",
-    locale: "de-DE",
+    locale: "en-IE",
   },
 } as const;
 
@@ -46,12 +46,11 @@ export function formatCurrencyShort(
   period?: "month" | "year"
 ): string {
   const currency = currencies[currencyCode];
-  const formattedAmount = amount >= 1000 
-    ? `${(amount / 1000).toFixed(1)}k` 
-    : amount.toFixed(0);
-  
+  const formattedAmount = amount >= 1000 ? `${(amount / 1000).toFixed(1)}k` : amount.toFixed(0);
+
   if (period) {
     return `${currency.symbol}${formattedAmount}/${period}`;
   }
+
   return `${currency.symbol}${formattedAmount}`;
 }

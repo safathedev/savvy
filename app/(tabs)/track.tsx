@@ -1,16 +1,48 @@
-// Savvy Savings Tracker — Minimalist White Design
-import { currencies, formatCurrency } from "@/constants/currencies";
+﻿import { currencies, formatCurrency } from "@/constants/currencies";
 import { hatchColors, hatchShadows } from "@/constants/theme";
-import { savingsCategories } from "@/data/categories";
-import { SavingsEntry, useApp } from "@/lib/app-context";
-import { formatDate } from "@/lib/utils";
+import { SavingsEntry, SavingsGoal, useApp } from "@/lib/app-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import React, { useMemo, useState } from "react";
-import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import { ScrollView } from "react-native-gesture-handler";
-import Animated, { FadeInDown } from "react-native-reanimated";
+import {
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+const MAX_AMOUNT = 10000;
+const INCOME_CATEGORIES = ["salary", "support", "side", "gift", "other"] as const;
+const EXPENSE_CATEGORIES = ["housing", "groceries", "transport", "kids", "health", "other"] as const;
+
+type EntryFilter = "all" | "income" | "expense";
+
+function clampMoney(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(MAX_AMOUNT, value));
+}
+
+function parseMoney(text: string): number {
+  return clampMoney(Number(text.replace(",", ".")));
+}
+
+function normalizeMoneyInput(value: string): string {
+  const clean = value.replace(/[^0-9.,]/g, "");
+  const parsed = Number(clean.replace(",", "."));
+  if (!Number.isFinite(parsed) || parsed <= MAX_AMOUNT) return clean;
+  return String(MAX_AMOUNT);
+}
+
+function getGoalProgress(goal: SavingsGoal): number {
+  if (!goal.targetAmount || goal.targetAmount <= 0) return 0;
+  return Math.min(100, Math.round((goal.currentAmount / goal.targetAmount) * 100));
+}
 
 export default function TrackScreen() {
   const insets = useSafeAreaInsets();
@@ -18,382 +50,657 @@ export default function TrackScreen() {
     userProfile,
     savingsEntries,
     addSavingsEntry,
-    getMonthlySavings,
+    updateSavingsEntry,
+    deleteSavingsEntry,
+    getTotalIncome,
+    getTotalExpenses,
     getTotalSavings,
+    getReservedExpenses,
+    getAvailableAfterReserved,
+    getUpcomingCostEvents,
     savingsGoals,
     addSavingsGoal,
     updateSavingsGoal,
-    deleteSavingsGoal
+    deleteSavingsGoal,
   } = useApp();
 
-  const [modalVisible, setModalVisible] = useState(false);
+  const currency = userProfile?.currency || "EUR";
+  const currencySymbol = currencies[currency]?.symbol || currencies.EUR.symbol;
+
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [statsVisible, setStatsVisible] = useState(false);
+  const [entryTypeModalVisible, setEntryTypeModalVisible] = useState(false);
+
+  const [entryFilter, setEntryFilter] = useState<EntryFilter>("all");
+  const [entryModalVisible, setEntryModalVisible] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<SavingsEntry | null>(null);
+  const [entryType, setEntryType] = useState<"income" | "expense">("expense");
+  const [entryAmount, setEntryAmount] = useState("");
+  const [entryCategory, setEntryCategory] = useState("groceries");
+  const [entryNote, setEntryNote] = useState("");
+
   const [goalModalVisible, setGoalModalVisible] = useState(false);
-
-  const [amount, setAmount] = useState("");
-  const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
-  const [category, setCategory] = useState("groceries");
-  const [note, setNote] = useState("");
-
+  const [editingGoal, setEditingGoal] = useState<SavingsGoal | null>(null);
   const [goalTitle, setGoalTitle] = useState("");
   const [goalTarget, setGoalTarget] = useState("");
-  const [goalColor, setGoalColor] = useState(hatchColors.primary.default);
+  const [goalCurrent, setGoalCurrent] = useState("");
 
-  const currency = userProfile?.currency || "GBP";
-  const currencySymbol = currencies[currency]?.symbol || "£";
+  const incomeTotal = getTotalIncome();
+  const expenseTotal = getTotalExpenses();
+  const netBalance = getTotalSavings();
+  const plannedExpenses = getReservedExpenses();
+  const afterPlanned = getAvailableAfterReserved();
+  const upcomingEvents = getUpcomingCostEvents();
 
-  const sections = useMemo(() => {
-    const grouped: { [key: string]: SavingsEntry[] } = {};
-    savingsEntries.forEach((entry) => {
-      const dateKey = entry.date.split("T")[0];
-      if (!grouped[dateKey]) grouped[dateKey] = [];
-      grouped[dateKey].push(entry);
-    });
-    return Object.entries(grouped)
-      .sort(([a], [b]) => new Date(b).getTime() - new Date(a).getTime())
-      .map(([date, data]) => ({ title: formatDate(date), data }));
-  }, [savingsEntries]);
+  const entries = useMemo(
+    () => [...savingsEntries].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+    [savingsEntries]
+  );
 
-  const handleAddSavings = async () => {
-    const num = parseFloat(amount);
-    if (isNaN(num) || num <= 0) return;
+  const filteredEntries = useMemo(() => {
+    if (entryFilter === "all") return entries;
+    return entries.filter((entry) => entry.type === entryFilter);
+  }, [entries, entryFilter]);
+
+  const expenseRatio = incomeTotal > 0 ? Math.min(100, Math.round((expenseTotal / incomeTotal) * 100)) : 0;
+  const plannedRatio = incomeTotal > 0 ? Math.min(100, Math.round((plannedExpenses / incomeTotal) * 100)) : 0;
+  const savedRatio = incomeTotal > 0 ? Math.max(0, Math.min(100, Math.round((Math.max(0, netBalance) / incomeTotal) * 100))) : 0;
+  const goalsSorted = useMemo(
+    () => [...savingsGoals].sort((a, b) => a.title.localeCompare(b.title)),
+    [savingsGoals]
+  );
+  const primaryGoal = useMemo(() => {
+    if (goalsSorted.length === 0) return null;
+    return [...goalsSorted].sort((a, b) => {
+      const pa = a.targetAmount > 0 ? a.currentAmount / a.targetAmount : 0;
+      const pb = b.targetAmount > 0 ? b.currentAmount / b.targetAmount : 0;
+      return pa - pb;
+    })[0];
+  }, [goalsSorted]);
+  const primaryGoalProgress = primaryGoal ? getGoalProgress(primaryGoal) : 0;
+
+  const openEntryModal = (type: "income" | "expense", entry?: SavingsEntry) => {
+    if (entry) {
+      setEditingEntry(entry);
+      setEntryType(entry.type);
+      setEntryAmount(String(entry.amount));
+      setEntryCategory(entry.category);
+      setEntryNote(entry.note || "");
+    } else {
+      setEditingEntry(null);
+      setEntryType(type);
+      setEntryAmount("");
+      setEntryCategory(type === "income" ? "salary" : "groceries");
+      setEntryNote("");
+    }
+    setEntryModalVisible(true);
+  };
+
+  const saveEntry = async () => {
+    const amount = parseMoney(entryAmount);
+    if (!amount) return;
+
+    const payload = {
+      type: entryType,
+      amount,
+      category: entryCategory,
+      note: entryNote.trim(),
+      date: editingEntry ? editingEntry.date : new Date().toISOString(),
+    };
+
+    if (editingEntry) await updateSavingsEntry({ ...editingEntry, ...payload });
+    else await addSavingsEntry(payload);
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setEntryModalVisible(false);
+  };
 
-    // If a goal is selected, update it
-    if (selectedGoalId) {
-      const goal = savingsGoals.find(g => g.id === selectedGoalId);
-      if (goal) {
-        await updateSavingsGoal({
-          ...goal,
-          currentAmount: goal.currentAmount + num
-        });
-      }
+  const openGoalModal = (goal?: SavingsGoal) => {
+    if (goal) {
+      setEditingGoal(goal);
+      setGoalTitle(goal.title);
+      setGoalTarget(String(goal.targetAmount));
+      setGoalCurrent(String(goal.currentAmount));
+    } else {
+      setEditingGoal(null);
+      setGoalTitle("");
+      setGoalTarget("");
+      setGoalCurrent("0");
+    }
+    setGoalModalVisible(true);
+  };
+
+  const saveGoal = async () => {
+    const target = parseMoney(goalTarget);
+    const current = parseMoney(goalCurrent);
+    if (!goalTitle.trim() || !target) return;
+
+    if (editingGoal) {
+      await updateSavingsGoal({
+        ...editingGoal,
+        title: goalTitle.trim(),
+        targetAmount: target,
+        currentAmount: current,
+      });
+    } else {
+      await addSavingsGoal({
+        title: goalTitle.trim(),
+        targetAmount: target,
+        currentAmount: current,
+        icon: "flag",
+        color: hatchColors.primary.default,
+      });
     }
 
-    await addSavingsEntry({ amount: num, category, note: note || (selectedGoalId ? "Goal Contribution" : ""), date: new Date().toISOString() });
-
-    setAmount(""); setCategory("groceries"); setNote(""); setSelectedGoalId(null);
-    setModalVisible(false);
-  };
-
-  const handleAddGoal = async () => {
-    const target = parseFloat(goalTarget);
-    if (!goalTitle || isNaN(target)) return;
-
-    await addSavingsGoal({
-      title: goalTitle,
-      targetAmount: target,
-      currentAmount: 0,
-      icon: "trophy",
-      color: goalColor
-    });
-
-    setGoalTitle(""); setGoalTarget(""); setGoalModalVisible(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setGoalModalVisible(false);
   };
-
-  const monthlyGoal = 500; // Mock monthly goal for velocity
-  const monthlyProgress = Math.min(getMonthlySavings() / monthlyGoal, 1);
 
   return (
     <View style={s.root}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}>
-        {/* Header */}
-        <View style={[s.header, { paddingTop: insets.top + 16 }]}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{
+          paddingTop: insets.top + 14,
+          paddingBottom: insets.bottom + 90,
+          paddingHorizontal: 20,
+        }}
+      >
+        <View style={s.header}>
           <View>
-            <Text style={s.title}>Savings Hub</Text>
-            <Text style={s.subtitle}>Building your future</Text>
+            <Text style={s.title}>Savings</Text>
+            <Text style={s.subtitle}>Clear first. Details only when you need them.</Text>
           </View>
-          <Pressable onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)} style={s.profileTiny}>
+          <Pressable style={s.statsBtn} onPress={() => setStatsVisible(true)}>
             <Ionicons name="stats-chart" size={20} color={hatchColors.primary.default} />
           </Pressable>
         </View>
 
-        {/* Hero Stats */}
-        <View style={s.heroContainer}>
-          <View style={s.mainStat}>
-            <Text style={s.mainStatLabel}>TOTAL BALANCE</Text>
-            <Text style={s.mainStatValue}>{formatCurrency(getTotalSavings(), currency)}</Text>
-          </View>
-          <View style={s.velocityContainer}>
-            <View style={s.velocityHeader}>
-              <Text style={s.velocityLabel}>MONTHLY PROGRESS</Text>
-              <Text style={s.velocityValue}>{Math.round(monthlyProgress * 100)}%</Text>
-            </View>
-            <View style={s.velocityTrack}>
-              <Animated.View
-                entering={FadeInDown.delay(300)}
-                style={[s.velocityFill, { width: `${monthlyProgress * 100}%` }]}
-              />
-            </View>
+        <View style={s.heroCard}>
+          <Text style={s.heroLabel}>AVAILABLE NOW</Text>
+          <Text style={s.heroValue}>{formatCurrency(netBalance, currency)}</Text>
+
+          <View style={s.heroGrid}>
+            <MetricCell label="Income" value={`+${formatCurrency(incomeTotal, currency)}`} />
+            <MetricCell label="Spent" value={`-${formatCurrency(expenseTotal, currency)}`} />
+            <MetricCell label="Reserved" value={`-${formatCurrency(plannedExpenses, currency)}`} />
+            <MetricCell label="After reserved" value={formatCurrency(afterPlanned, currency)} />
           </View>
         </View>
 
-        {/* Goals Carousel */}
-        <View style={s.sectionHeaderRow}>
-          <Text style={s.sectionTitle}>Savings Goals</Text>
-          <Pressable onPress={() => setGoalModalVisible(true)} style={s.addGoalBtn}>
-            <Ionicons name="add" size={18} color={hatchColors.primary.default} />
-            <Text style={s.addGoalText}>New Goal</Text>
+        <Pressable
+          style={[s.goalHeroCard, !primaryGoal && s.goalHeroCardEmpty]}
+          onPress={() => (primaryGoal ? openGoalModal(primaryGoal) : openGoalModal())}
+        >
+          {primaryGoal ? (
+            <>
+              <View style={s.goalHeroHeader}>
+                <Text style={s.goalHeroLabel}>SAVINGS GOAL</Text>
+                <Text style={s.goalHeroPercent}>
+                  {primaryGoalProgress}%
+                </Text>
+              </View>
+              <Text style={s.goalHeroTitle}>{primaryGoal.title}</Text>
+              <Text style={s.goalHeroMeta}>
+                {formatCurrency(primaryGoal.currentAmount, currency)} of {formatCurrency(primaryGoal.targetAmount, currency)}
+              </Text>
+              <View style={s.goalHeroTrack}>
+                <View
+                  style={[
+                    s.goalHeroFill,
+                    { width: `${primaryGoalProgress}%` },
+                  ]}
+                />
+              </View>
+              <Text style={s.goalHeroHint}>Tap to edit goal</Text>
+            </>
+          ) : (
+            <>
+              <Text style={s.goalHeroLabel}>SAVINGS GOAL</Text>
+              <Text style={s.goalHeroTitle}>Create your first goal</Text>
+              <Text style={s.goalHeroMeta}>A clear goal makes saving easier and more consistent.</Text>
+            </>
+          )}
+        </Pressable>
+
+        <View style={s.sectionHeader}>
+          <Text style={s.sectionTitle}>Goals</Text>
+          <Pressable style={s.goalAddBtn} onPress={() => openGoalModal()}>
+            <Ionicons name="add" size={14} color="#FFFFFF" />
+            <Text style={s.goalAddBtnText}>Add goal</Text>
           </Pressable>
         </View>
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={s.goalsCarousel}
-          snapToInterval={280 + 16}
-          decelerationRate="fast"
-        >
-          {savingsGoals.length === 0 ? (
-            <Pressable onPress={() => setGoalModalVisible(true)} style={s.emptyGoalCard}>
-              <Ionicons name="flag-outline" size={32} color={hatchColors.text.tertiary} />
-              <Text style={s.emptyGoalText}>Set your first goal</Text>
-            </Pressable>
-          ) : (
-            savingsGoals.map(goal => {
-              const progress = Math.min(goal.currentAmount / goal.targetAmount, 1);
+        {goalsSorted.length === 0 ? (
+          <Pressable style={s.goalEmptyCard} onPress={() => openGoalModal()}>
+            <Text style={s.goalEmptyTitle}>No goals yet</Text>
+            <Text style={s.goalEmptyText}>Create your first goal now and track your progress easily.</Text>
+          </Pressable>
+        ) : (
+          <View style={s.goalList}>
+            {goalsSorted.map((goal, index) => {
+              const progress = getGoalProgress(goal);
               return (
-                <View key={goal.id} style={s.goalCard}>
-                  <View style={[s.goalIcon, { backgroundColor: goal.color + '15' }]}>
-                    <Ionicons name={goal.icon as any} size={24} color={goal.color} />
+                <Pressable
+                  key={`${goal.id}-${index}`}
+                  style={s.goalRowCard}
+                  onPress={() => openGoalModal(goal)}
+                >
+                  <View style={s.goalRowHeader}>
+                    <Text style={s.goalRowTitle} numberOfLines={1}>{goal.title}</Text>
+                    <Text style={s.goalRowPercent}>{progress}%</Text>
                   </View>
-                  <Text style={s.goalTitle} numberOfLines={1}>{goal.title}</Text>
-                  <Text style={s.goalMeta}>{formatCurrency(goal.currentAmount, currency)} of {formatCurrency(goal.targetAmount, currency)}</Text>
-                  <View style={s.goalProgressTrack}>
-                    <View style={[s.goalProgressFill, { width: `${progress * 100}%`, backgroundColor: goal.color }]} />
+                  <Text style={s.goalRowMeta}>
+                    {formatCurrency(goal.currentAmount, currency)} of {formatCurrency(goal.targetAmount, currency)}
+                  </Text>
+                  <View style={s.goalRowTrack}>
+                    <View style={[s.goalRowFill, { width: `${progress}%` }]} />
                   </View>
-                </View>
+                </Pressable>
               );
-            })
-          )}
-        </ScrollView>
+            })}
+          </View>
+        )}
 
-        {/* Quick Log */}
-        <View style={s.quickLogContainer}>
-          <Text style={s.sectionTitle}>Quick Save</Text>
-          <View style={s.quickLogGrid}>
-            {[5, 10, 20, 50].map(val => (
+        <View style={s.sectionHeader}>
+          <Text style={s.sectionTitle}>Income and expenses</Text>
+          <View style={s.filterRow}>
+            {(["all", "income", "expense"] as EntryFilter[]).map((filter) => (
               <Pressable
-                key={val}
-                onPress={() => {
-                  setAmount(val.toString());
-                  setModalVisible(true);
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                }}
-                style={s.quickLogItem}
+                key={filter}
+                onPress={() => setEntryFilter(filter)}
+                style={[s.filterChip, entryFilter === filter && s.filterChipActive]}
               >
-                <Text style={s.quickLogPrefix}>+</Text>
-                <Text style={s.quickLogVal}>{val}</Text>
+                <Text style={[s.filterChipText, entryFilter === filter && s.filterChipTextActive]}>
+                  {filter}
+                </Text>
               </Pressable>
             ))}
           </View>
         </View>
 
-        {/* Recent History */}
-        <Text style={[s.sectionTitle, { marginLeft: 24, marginTop: 32 }]}>History</Text>
-        {savingsEntries.length === 0 ? (
-          <View style={s.emptyHistory}>
-            <Text style={s.emptyHistoryText}>No transactions yet</Text>
-          </View>
+        {filteredEntries.length === 0 ? (
+          <Text style={s.emptyText}>No entries yet.</Text>
         ) : (
-          <View style={s.historyList}>
-            {savingsEntries.slice(0, 10).map(entry => {
-              const cat = savingsCategories.find(c => c.id === entry.category);
-              return (
-                <View key={entry.id} style={s.historyItem}>
-                  <View style={s.historyIcon}>
-                    <Ionicons name={cat?.icon as any || "cash-outline"} size={20} color={hatchColors.text.primary} />
+          filteredEntries.map((entry, index) => (
+            <Pressable key={`${entry.id}-${index}`} onPress={() => openEntryModal(entry.type, entry)} style={s.entryRow}>
+              <View style={[s.entryBadge, entry.type === "income" ? s.entryBadgeIncome : s.entryBadgeExpense]}>
+                <Text style={[s.entryBadgeText, entry.type === "income" ? s.entryBadgeIncomeText : s.entryBadgeExpenseText]}>
+                  {entry.type === "income" ? "IN" : "OUT"}
+                </Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.entryCategory}>{entry.category}</Text>
+                <Text style={s.entryMeta}>
+                  {entry.note || "No note"} - {new Date(entry.date).toLocaleDateString()}
+                </Text>
+              </View>
+              <Text style={[s.entryAmount, entry.type === "income" ? s.amountIncome : s.amountExpense]}>
+                {entry.type === "income" ? "+" : "-"}
+                {formatCurrency(entry.amount, currency)}
+              </Text>
+            </Pressable>
+          ))
+        )}
+
+        <Pressable style={s.advancedToggle} onPress={() => setShowAdvanced((value) => !value)}>
+          <Text style={s.linkText}>{showAdvanced ? "Hide planning details" : "Show planning details"}</Text>
+          <Ionicons
+            name={showAdvanced ? "chevron-up" : "chevron-down"}
+            size={14}
+            color={hatchColors.primary.default}
+          />
+        </Pressable>
+
+        {showAdvanced && (
+          <>
+            <View style={s.sectionHeader}>
+              <Text style={s.sectionTitle}>Planned expenses from calendar</Text>
+            </View>
+            {upcomingEvents.length === 0 ? (
+              <Text style={s.emptyText}>No planned cost events.</Text>
+            ) : (
+              upcomingEvents.slice(0, 8).map((event, index) => (
+                <View key={`${event.id}-${index}`} style={s.detailRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.detailTitle}>{event.title}</Text>
+                    <Text style={s.detailMeta}>
+                      {new Date(event.date).toLocaleDateString()} {event.time ? `- ${event.time}` : ""}
+                    </Text>
                   </View>
-                  <View style={s.historyInfo}>
-                    <Text style={s.historyLabel}>{cat?.name || "Savings"}</Text>
-                    <Text style={s.historyDate}>{new Date(entry.date).toLocaleDateString()}</Text>
-                  </View>
-                  <Text style={s.historyAmount}>+{formatCurrency(entry.amount, currency)}</Text>
+                  <Text style={s.amountExpense}>-{formatCurrency(event.amount || 0, currency)}</Text>
                 </View>
-              );
-            })}
-          </View>
+              ))
+            )}
+          </>
         )}
       </ScrollView>
 
-      {/* FAB replaced by Quick Log sections but kept for backward compatibility if needed, or removed */}
-      <Pressable
-        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setModalVisible(true); }}
-        style={[s.fab, { bottom: insets.bottom + 24 }]}
-      >
-        <View style={s.fabCircle}>
-          <Ionicons name="add" size={28} color="#FFFFFF" />
-        </View>
+      <Pressable style={[s.fab, { bottom: insets.bottom + 24 }]} onPress={() => setEntryTypeModalVisible(true)}>
+        <Ionicons name="add" size={30} color="#FFFFFF" />
       </Pressable>
 
-      {/* Modal - Add Savings */}
-      <Modal visible={modalVisible} transparent animationType="slide">
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={s.modalOverlay}>
-          <View style={s.modalContentMain}>
+      <Modal visible={entryTypeModalVisible} transparent animationType="fade">
+        <View style={s.modalOverlay}>
+          <View style={s.typeModalCard}>
             <View style={s.modalHeader}>
-              <Text style={s.modalTitle}>Contribution</Text>
-              <Pressable onPress={() => setModalVisible(false)}><Ionicons name="close" size={24} color={hatchColors.text.primary} /></Pressable>
+              <Text style={s.modalTitle}>New entry</Text>
+              <Pressable onPress={() => setEntryTypeModalVisible(false)}>
+                <Ionicons name="close" size={22} color={hatchColors.text.secondary} />
+              </Pressable>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <Text style={s.inputLabel}>AMOUNT</Text>
-              <View style={s.amountInputRow}>
-                <Text style={s.amountInputPrefix}>{currencySymbol}</Text>
-                <TextInput
-                  style={s.amountInputLarge}
-                  value={amount}
-                  onChangeText={setAmount}
-                  keyboardType="numeric"
-                  autoFocus
-                  placeholder="0.00"
-                />
+            <Pressable
+              style={s.typeSelectBtn}
+              onPress={() => {
+                setEntryTypeModalVisible(false);
+                openEntryModal("income");
+              }}
+            >
+              <Ionicons name="add-circle" size={20} color={hatchColors.primary.default} />
+              <View style={{ flex: 1 }}>
+                <Text style={s.typeSelectTitle}>Add income</Text>
+                <Text style={s.typeSelectMeta}>Salary, support, gift, side income</Text>
               </View>
+            </Pressable>
 
-              <Text style={s.inputLabel}>LINK TO GOAL (OPTIONAL)</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.goalSelectionRow}>
-                {savingsGoals.map(g => (
-                  <Pressable
-                    key={g.id}
-                    onPress={() => setSelectedGoalId(selectedGoalId === g.id ? null : g.id)}
-                    style={[s.goalPick, selectedGoalId === g.id && { borderColor: g.color, backgroundColor: g.color + '10' }]}
-                  >
-                    <Ionicons name={g.icon as any} size={18} color={selectedGoalId === g.id ? g.color : hatchColors.text.tertiary} />
-                    <Text style={[s.goalPickText, selectedGoalId === g.id && { color: g.color }]}>{g.title}</Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-
-              <Text style={s.inputLabel}>CATEGORY</Text>
-              <View style={s.categoryGridSub}>
-                {savingsCategories.slice(0, 6).map(cat => (
-                  <Pressable
-                    key={cat.id}
-                    onPress={() => setCategory(cat.id)}
-                    style={[s.catGridItem, category === cat.id && s.catGridItemActive]}
-                  >
-                    <Ionicons name={cat.icon as any} size={16} color={category === cat.id ? "#FFFFFF" : hatchColors.text.secondary} />
-                    <Text style={[s.catGridText, category === cat.id && s.catGridTextActive]}>{cat.name}</Text>
-                  </Pressable>
-                ))}
+            <Pressable
+              style={s.typeSelectBtn}
+              onPress={() => {
+                setEntryTypeModalVisible(false);
+                openEntryModal("expense");
+              }}
+            >
+              <Ionicons name="remove-circle" size={20} color={hatchColors.status.error} />
+              <View style={{ flex: 1 }}>
+                <Text style={s.typeSelectTitle}>Add expense</Text>
+                <Text style={s.typeSelectMeta}>Groceries, housing, transport, kids, health</Text>
               </View>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
 
-              <Pressable onPress={handleAddSavings} style={s.saveEntryBtn}>
-                <Text style={s.saveEntryBtnText}>Record Savings</Text>
+      <Modal visible={entryModalVisible} transparent animationType="fade">
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={s.modalOverlay}>
+          <View style={s.modalCard}>
+            <View style={s.modalHeader}>
+              <Text style={s.modalTitle}>{editingEntry ? "Edit entry" : "New entry"}</Text>
+              <Pressable onPress={() => setEntryModalVisible(false)}>
+                <Ionicons name="close" size={22} color={hatchColors.text.secondary} />
               </Pressable>
-            </ScrollView>
+            </View>
+
+            <View style={s.typeRow}>
+              {(["income", "expense"] as const).map((type) => (
+                <Pressable key={type} onPress={() => setEntryType(type)} style={[s.typeChip, entryType === type && s.typeChipActive]}>
+                  <Text style={[s.typeChipText, entryType === type && s.typeChipTextActive]}>{type}</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <Text style={s.modalLabel}>Amount</Text>
+            <View style={s.amountRow}>
+              <Text style={s.amountSymbol}>{currencySymbol}</Text>
+              <TextInput
+                style={s.amountInput}
+                value={entryAmount}
+                onChangeText={(value) => setEntryAmount(normalizeMoneyInput(value))}
+                keyboardType="decimal-pad"
+                placeholder="0.00"
+              />
+            </View>
+
+            <Text style={s.modalLabel}>Category</Text>
+            <View style={s.categoryWrap}>
+              {(entryType === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES).map((cat) => (
+                <Pressable key={cat} onPress={() => setEntryCategory(cat)} style={[s.categoryChip, entryCategory === cat && s.categoryChipActive]}>
+                  <Text style={[s.categoryText, entryCategory === cat && s.categoryTextActive]}>{cat}</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <Text style={s.modalLabel}>Note</Text>
+            <TextInput style={[s.input, { height: 70, textAlignVertical: "top" }]} value={entryNote} onChangeText={setEntryNote} placeholder="Optional" multiline />
+
+            <Pressable style={s.saveBtn} onPress={saveEntry}><Text style={s.saveBtnText}>{editingEntry ? "Save" : "Add entry"}</Text></Pressable>
+            {editingEntry && (
+              <Pressable style={s.deleteBtn} onPress={async () => { await deleteSavingsEntry(editingEntry.id); setEntryModalVisible(false); }}>
+                <Text style={s.deleteBtnText}>Delete entry</Text>
+              </Pressable>
+            )}
           </View>
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* Modal - Add Goal */}
-      <Modal visible={goalModalVisible} transparent animationType="slide">
+      <Modal visible={goalModalVisible} transparent animationType="fade">
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={s.modalOverlay}>
-          <View style={s.modalContentMain}>
+          <View style={s.modalCard}>
             <View style={s.modalHeader}>
-              <Text style={s.modalTitle}>Set a Goal</Text>
-              <Pressable onPress={() => setGoalModalVisible(false)}><Ionicons name="close" size={24} color={hatchColors.text.primary} /></Pressable>
+              <Text style={s.modalTitle}>{editingGoal ? "Edit goal" : "New goal"}</Text>
+              <Pressable onPress={() => setGoalModalVisible(false)}><Ionicons name="close" size={22} color={hatchColors.text.secondary} /></Pressable>
             </View>
-
-            <Text style={s.inputLabel}>GOAL TITLE</Text>
-            <TextInput style={s.textInput} value={goalTitle} onChangeText={setGoalTitle} placeholder="e.g. Dream Car, Emergency Fund" />
-
-            <Text style={s.inputLabel}>TARGET AMOUNT</Text>
-            <TextInput style={s.textInput} value={goalTarget} onChangeText={setGoalTarget} keyboardType="numeric" placeholder="1000.00" />
-
-            <Text style={s.inputLabel}>THEME COLOR</Text>
-            <View style={s.colorSelectRow}>
-              {["#10B981", "#3B82F6", "#8B5CF6", "#F59E0B", "#EF4444"].map(c => (
-                <Pressable key={c} onPress={() => setGoalColor(c)} style={[s.colorCircle, { backgroundColor: c }, goalColor === c && s.colorCircleSelected]} />
-              ))}
-            </View>
-
-            <Pressable onPress={handleAddGoal} style={s.saveEntryBtn}>
-              <Text style={s.saveEntryBtnText}>Create Goal</Text>
-            </Pressable>
+            <Text style={s.modalLabel}>Title</Text>
+            <TextInput style={s.input} value={goalTitle} onChangeText={setGoalTitle} placeholder="Emergency fund" />
+            <Text style={s.modalLabel}>Target amount</Text>
+            <TextInput style={s.input} value={goalTarget} onChangeText={(value) => setGoalTarget(normalizeMoneyInput(value))} keyboardType="decimal-pad" placeholder="0.00" />
+            <Text style={s.modalLabel}>Current amount</Text>
+            <TextInput style={s.input} value={goalCurrent} onChangeText={(value) => setGoalCurrent(normalizeMoneyInput(value))} keyboardType="decimal-pad" placeholder="0.00" />
+            <Pressable style={s.saveBtn} onPress={saveGoal}><Text style={s.saveBtnText}>Save goal</Text></Pressable>
+            {editingGoal && (
+              <Pressable style={s.deleteBtn} onPress={async () => { await deleteSavingsGoal(editingGoal.id); setGoalModalVisible(false); }}>
+                <Text style={s.deleteBtnText}>Delete goal</Text>
+              </Pressable>
+            )}
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal visible={statsVisible} transparent animationType="fade">
+        <View style={s.modalOverlay}>
+          <View style={s.modalCard}>
+            <View style={s.modalHeader}>
+              <Text style={s.modalTitle}>Simple stats</Text>
+              <Pressable onPress={() => setStatsVisible(false)}><Ionicons name="close" size={22} color={hatchColors.text.secondary} /></Pressable>
+            </View>
+
+            <StatBar label="Spent from income" value={`${expenseRatio}%`} percent={expenseRatio} />
+            <StatBar label="Reserved from income" value={`${plannedRatio}%`} percent={plannedRatio} />
+            <StatBar label="Current saved ratio" value={`${savedRatio}%`} percent={savedRatio} />
+            <Text style={s.statHint}>These are quick guidance numbers, not strict limits.</Text>
+          </View>
+        </View>
       </Modal>
     </View>
   );
 }
 
+function MetricCell({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={{ width: "48%", marginBottom: 8 }}>
+      <Text style={s.heroMiniLabel}>{label}</Text>
+      <Text style={s.heroMiniValue}>{value}</Text>
+    </View>
+  );
+}
+
+function StatBar({ label, value, percent }: { label: string; value: string; percent: number }) {
+  return (
+    <View style={{ marginBottom: 10 }}>
+      <Text style={s.statLabel}>{label}</Text>
+      <View style={s.statTrack}><View style={[s.statFill, { width: `${percent}%` }]} /></View>
+      <Text style={s.statValue}>{value}</Text>
+    </View>
+  );
+}
+
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#FFFFFF" },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24, marginBottom: 24 },
-  title: { fontSize: 28, fontWeight: "800", color: hatchColors.text.primary, letterSpacing: -1 },
-  subtitle: { fontSize: 14, fontWeight: "600", color: hatchColors.text.tertiary, marginTop: -2 },
-  profileTiny: { width: 40, height: 40, borderRadius: 12, backgroundColor: hatchColors.primary.muted, alignItems: 'center', justifyContent: 'center' },
+  root: { flex: 1, backgroundColor: hatchColors.background.primary },
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
+  title: { fontSize: 30, fontWeight: "800", color: hatchColors.text.primary },
+  subtitle: { marginTop: 4, fontSize: 13, color: hatchColors.text.secondary },
+  statsBtn: { width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: hatchColors.primary.muted },
 
-  heroContainer: { marginHorizontal: 24, padding: 24, borderRadius: 32, backgroundColor: hatchColors.primary.default, ...hatchShadows.glow },
-  mainStat: { marginBottom: 24 },
-  mainStatLabel: { fontSize: 10, fontWeight: "900", color: 'rgba(255,255,255,0.7)', letterSpacing: 1 },
-  mainStatValue: { fontSize: 36, fontWeight: "800", color: "#FFFFFF", letterSpacing: -1 },
-  velocityContainer: {},
-  velocityHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
-  velocityLabel: { fontSize: 10, fontWeight: "900", color: 'rgba(255,255,255,0.7)', letterSpacing: 0.5 },
-  velocityValue: { fontSize: 10, fontWeight: "900", color: "#FFFFFF" },
-  velocityTrack: { height: 6, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 3, overflow: 'hidden' },
-  velocityFill: { height: '100%', backgroundColor: '#FFFFFF', borderRadius: 3 },
+  heroCard: { borderRadius: 20, backgroundColor: hatchColors.primary.default, padding: 16, marginBottom: 12, ...hatchShadows.md },
+  heroLabel: { fontSize: 10, fontWeight: "800", color: "rgba(255,255,255,0.75)", letterSpacing: 0.8 },
+  heroValue: { marginTop: 4, fontSize: 30, fontWeight: "800", color: "#FFFFFF" },
+  heroGrid: { marginTop: 12, flexDirection: "row", justifyContent: "space-between", flexWrap: "wrap" },
+  heroMiniLabel: { fontSize: 11, fontWeight: "700", color: "rgba(255,255,255,0.8)" },
+  heroMiniValue: { marginTop: 2, fontSize: 14, fontWeight: "800", color: "#FFFFFF" },
 
-  sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24, marginTop: 32, marginBottom: 16 },
-  sectionTitle: { fontSize: 18, fontWeight: "800", color: hatchColors.text.primary },
-  addGoalBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  addGoalText: { fontSize: 13, fontWeight: "700", color: hatchColors.primary.default },
+  goalHeroCard: {
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: hatchColors.primary.default,
+    backgroundColor: "#FFFFFF",
+    padding: 14,
+    marginBottom: 12,
+    ...hatchShadows.sm,
+  },
+  goalHeroCardEmpty: {
+    backgroundColor: "#FFFFFF",
+  },
+  goalHeroHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  goalHeroLabel: { fontSize: 10, fontWeight: "800", color: hatchColors.primary.default, letterSpacing: 0.7 },
+  goalHeroPercent: { fontSize: 16, fontWeight: "800", color: hatchColors.primary.default },
+  goalHeroTitle: { marginTop: 5, fontSize: 20, fontWeight: "800", color: hatchColors.primary.default },
+  goalHeroMeta: { marginTop: 3, fontSize: 13, color: hatchColors.primary.default },
+  goalHeroTrack: { marginTop: 10, height: 8, borderRadius: 999, backgroundColor: hatchColors.primary.muted, overflow: "hidden" },
+  goalHeroFill: { height: "100%", borderRadius: 999, backgroundColor: hatchColors.primary.default },
+  goalHeroHint: { marginTop: 8, fontSize: 11, fontWeight: "700", color: hatchColors.primary.default },
+  goalAddBtn: {
+    borderRadius: 999,
+    backgroundColor: hatchColors.primary.default,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  goalAddBtnText: { fontSize: 12, fontWeight: "800", color: "#FFFFFF" },
+  goalEmptyCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: hatchColors.border.default,
+    backgroundColor: "#FFFFFF",
+    padding: 12,
+    marginBottom: 6,
+  },
+  goalEmptyTitle: { fontSize: 15, fontWeight: "800", color: hatchColors.text.primary },
+  goalEmptyText: { marginTop: 4, fontSize: 12, color: hatchColors.text.secondary, lineHeight: 18 },
+  goalList: { marginBottom: 2 },
+  goalRowCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: hatchColors.border.default,
+    backgroundColor: "#FFFFFF",
+    padding: 10,
+    marginBottom: 8,
+  },
+  goalRowHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  goalRowTitle: { flex: 1, fontSize: 14, fontWeight: "800", color: hatchColors.text.primary, marginRight: 8 },
+  goalRowPercent: { fontSize: 13, fontWeight: "800", color: hatchColors.primary.default },
+  goalRowMeta: { marginTop: 4, fontSize: 12, color: hatchColors.text.secondary },
+  goalRowTrack: { marginTop: 8, height: 7, borderRadius: 999, backgroundColor: hatchColors.background.secondary, overflow: "hidden" },
+  goalRowFill: { height: "100%", borderRadius: 999, backgroundColor: hatchColors.primary.default },
 
-  goalsCarousel: { paddingLeft: 24, paddingRight: 8 },
-  goalCard: { width: 280, backgroundColor: "#FFFFFF", borderRadius: 24, padding: 20, marginRight: 16, borderWidth: 1, borderColor: hatchColors.border.default, ...hatchShadows.sm },
-  goalIcon: { width: 48, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
-  goalTitle: { fontSize: 16, fontWeight: "800", color: hatchColors.text.primary },
-  goalMeta: { fontSize: 12, fontWeight: "600", color: hatchColors.text.tertiary, marginTop: 4, marginBottom: 16 },
-  goalProgressTrack: { height: 8, backgroundColor: hatchColors.background.secondary, borderRadius: 4, overflow: 'hidden' },
-  goalProgressFill: { height: '100%', borderRadius: 4 },
-  emptyGoalCard: { width: 280, height: 160, borderRadius: 24, borderStyle: 'dashed', borderWidth: 2, borderColor: hatchColors.border.default, alignItems: 'center', justifyContent: 'center', marginRight: 24 },
-  emptyGoalText: { fontSize: 14, fontWeight: "700", color: hatchColors.text.tertiary, marginTop: 12 },
+  sectionHeader: { marginTop: 6, marginBottom: 8, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  sectionTitle: { fontSize: 12, fontWeight: "800", color: hatchColors.text.tertiary, textTransform: "uppercase" },
+  linkText: { fontSize: 13, fontWeight: "800", color: hatchColors.primary.default },
+  emptyText: { fontSize: 13, color: hatchColors.text.tertiary, marginBottom: 8 },
 
-  quickLogContainer: { paddingHorizontal: 24, marginTop: 32 },
-  quickLogGrid: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 16 },
-  quickLogItem: { width: '22%', aspectRatio: 1, borderRadius: 20, backgroundColor: hatchColors.background.secondary, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: hatchColors.border.default },
-  quickLogPrefix: { fontSize: 12, fontWeight: "900", color: hatchColors.primary.default },
-  quickLogVal: { fontSize: 18, fontWeight: "800", color: hatchColors.text.primary },
+  amountRow: { borderRadius: 12, borderWidth: 1, borderColor: hatchColors.border.default, backgroundColor: hatchColors.background.secondary, flexDirection: "row", alignItems: "center", paddingHorizontal: 10, paddingVertical: 8 },
+  amountSymbol: { fontSize: 19, fontWeight: "800", color: hatchColors.primary.default, marginRight: 6 },
+  amountInput: { flex: 1, fontSize: 22, fontWeight: "800", color: hatchColors.text.primary },
 
-  historyList: { paddingHorizontal: 24, marginTop: 16 },
-  historyItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: hatchColors.border.light },
-  historyIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: hatchColors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 16 },
-  historyInfo: { flex: 1 },
-  historyLabel: { fontSize: 15, fontWeight: "700", color: hatchColors.text.primary },
-  historyDate: { fontSize: 12, color: hatchColors.text.tertiary, marginTop: 2 },
-  historyAmount: { fontSize: 15, fontWeight: "800", color: hatchColors.status.success },
-  emptyHistory: { paddingHorizontal: 24, marginTop: 20, opacity: 0.5 },
-  emptyHistoryText: { fontSize: 14, fontStyle: 'italic', color: hatchColors.text.tertiary },
+  filterRow: { flexDirection: "row", gap: 6 },
+  filterChip: { borderRadius: 999, borderWidth: 1, borderColor: hatchColors.border.default, paddingHorizontal: 10, paddingVertical: 5 },
+  filterChipActive: { borderColor: hatchColors.primary.default, backgroundColor: hatchColors.primary.muted },
+  filterChipText: { fontSize: 12, fontWeight: "700", color: hatchColors.text.secondary, textTransform: "capitalize" },
+  filterChipTextActive: { color: hatchColors.primary.default },
 
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 20 },
-  modalContentMain: { backgroundColor: '#FFFFFF', borderRadius: 32, padding: 24, maxHeight: '90%', ...hatchShadows.lg },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
-  modalTitle: { fontSize: 22, fontWeight: "800", color: hatchColors.text.primary },
-  inputLabel: { fontSize: 10, fontWeight: "900", color: hatchColors.text.tertiary, letterSpacing: 1, marginTop: 24, marginBottom: 12 },
-  amountInputRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: hatchColors.background.secondary, borderRadius: 20, padding: 16 },
-  amountInputPrefix: { fontSize: 24, fontWeight: "800", color: hatchColors.primary.default, marginRight: 10 },
-  amountInputLarge: { flex: 1, fontSize: 32, fontWeight: "800", color: hatchColors.text.primary },
+  entryRow: { borderRadius: 12, borderWidth: 1, borderColor: hatchColors.border.default, backgroundColor: "#FFFFFF", padding: 10, marginBottom: 8, flexDirection: "row", alignItems: "center", gap: 8 },
+  entryBadge: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 5 },
+  entryBadgeIncome: { backgroundColor: hatchColors.primary.muted },
+  entryBadgeExpense: { backgroundColor: "rgba(239,68,68,0.12)" },
+  entryBadgeText: { fontSize: 10, fontWeight: "800" },
+  entryBadgeIncomeText: { color: hatchColors.primary.default },
+  entryBadgeExpenseText: { color: hatchColors.status.error },
+  entryCategory: { fontSize: 14, fontWeight: "700", color: hatchColors.text.primary },
+  entryMeta: { marginTop: 2, fontSize: 12, color: hatchColors.text.secondary },
+  entryAmount: { fontSize: 14, fontWeight: "800" },
+  amountIncome: { color: hatchColors.primary.default },
+  amountExpense: { color: hatchColors.status.error },
 
-  goalSelectionRow: { gap: 8 },
-  goalPick: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: hatchColors.border.default, backgroundColor: '#FFFFFF' },
-  goalPickText: { fontSize: 13, fontWeight: "700", color: hatchColors.text.secondary },
+  advancedToggle: {
+    marginTop: 8,
+    marginBottom: 6,
+    borderRadius: 12,
+    backgroundColor: hatchColors.background.secondary,
+    borderWidth: 1,
+    borderColor: hatchColors.border.default,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
 
-  categoryGridSub: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  catGridItem: { width: '31%', paddingVertical: 12, borderRadius: 12, backgroundColor: hatchColors.background.secondary, alignItems: 'center', gap: 4 },
-  catGridItemActive: { backgroundColor: hatchColors.primary.default },
-  catGridText: { fontSize: 11, fontWeight: "700", color: hatchColors.text.secondary },
-  catGridTextActive: { color: "#FFFFFF" },
+  detailRow: { borderRadius: 12, borderWidth: 1, borderColor: hatchColors.border.default, backgroundColor: "#FFFFFF", padding: 10, marginBottom: 8, flexDirection: "row", alignItems: "center", gap: 8 },
+  detailTitle: { fontSize: 14, fontWeight: "700", color: hatchColors.text.primary },
+  detailMeta: { marginTop: 2, fontSize: 12, color: hatchColors.text.secondary },
 
-  textInput: { backgroundColor: hatchColors.background.secondary, borderRadius: 16, padding: 16, fontSize: 16, fontWeight: "600", color: hatchColors.text.primary },
-  colorSelectRow: { flexDirection: 'row', gap: 12, marginTop: 8 },
-  colorCircle: { width: 36, height: 36, borderRadius: 18 },
-  colorCircleSelected: { borderWidth: 3, borderColor: hatchColors.text.primary },
+  fab: {
+    position: "absolute",
+    right: 22,
+    bottom: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: hatchColors.primary.default,
+    alignItems: "center",
+    justifyContent: "center",
+    ...hatchShadows.glow,
+  },
 
-  saveEntryBtn: { backgroundColor: hatchColors.primary.default, borderRadius: 20, padding: 20, alignItems: 'center', marginTop: 32, ...hatchShadows.glow },
-  saveEntryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: "800" },
+  modalOverlay: { flex: 1, justifyContent: "center", alignItems: "center", padding: 18, backgroundColor: "rgba(0,0,0,0.35)" },
+  modalCard: { width: "100%", maxWidth: 420, borderRadius: 16, backgroundColor: "#FFFFFF", padding: 14 },
+  typeModalCard: { width: "100%", maxWidth: 420, borderRadius: 16, backgroundColor: "#FFFFFF", padding: 14 },
+  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+  modalTitle: { fontSize: 18, fontWeight: "800", color: hatchColors.text.primary },
+  typeSelectBtn: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: hatchColors.border.default,
+    backgroundColor: "#FFFFFF",
+    padding: 12,
+    marginBottom: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  typeSelectTitle: { fontSize: 14, fontWeight: "800", color: hatchColors.text.primary },
+  typeSelectMeta: { marginTop: 2, fontSize: 12, color: hatchColors.text.secondary },
+  modalLabel: { marginTop: 8, marginBottom: 5, fontSize: 11, fontWeight: "800", color: hatchColors.text.tertiary, textTransform: "uppercase" },
+  typeRow: { flexDirection: "row", gap: 8, marginBottom: 4 },
+  typeChip: { flex: 1, borderRadius: 10, borderWidth: 1, borderColor: hatchColors.border.default, alignItems: "center", paddingVertical: 8 },
+  typeChipActive: { borderColor: hatchColors.primary.default, backgroundColor: hatchColors.primary.muted },
+  typeChipText: { fontSize: 13, fontWeight: "700", color: hatchColors.text.secondary, textTransform: "capitalize" },
+  typeChipTextActive: { color: hatchColors.primary.default },
+  categoryWrap: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  categoryChip: { borderRadius: 999, borderWidth: 1, borderColor: hatchColors.border.default, paddingHorizontal: 10, paddingVertical: 6 },
+  categoryChipActive: { borderColor: hatchColors.primary.default, backgroundColor: hatchColors.primary.muted },
+  categoryText: { fontSize: 12, fontWeight: "700", color: hatchColors.text.secondary },
+  categoryTextActive: { color: hatchColors.primary.default },
+  input: { borderRadius: 10, borderWidth: 1, borderColor: hatchColors.border.default, backgroundColor: hatchColors.background.secondary, paddingHorizontal: 10, paddingVertical: 9, fontSize: 14, color: hatchColors.text.primary },
+  saveBtn: { marginTop: 12, borderRadius: 12, alignItems: "center", paddingVertical: 11, backgroundColor: hatchColors.primary.default },
+  saveBtnText: { fontSize: 14, fontWeight: "800", color: "#FFFFFF" },
+  deleteBtn: { marginTop: 7, borderRadius: 10, alignItems: "center", paddingVertical: 10, backgroundColor: hatchColors.background.secondary },
+  deleteBtnText: { fontSize: 13, fontWeight: "800", color: hatchColors.status.error },
 
-  fab: { position: 'absolute', right: 24 },
-  fabCircle: { width: 60, height: 60, borderRadius: 30, backgroundColor: hatchColors.primary.default, alignItems: 'center', justifyContent: 'center', ...hatchShadows.md },
+  statLabel: { fontSize: 12, fontWeight: "700", color: hatchColors.text.secondary },
+  statTrack: { marginTop: 5, height: 8, borderRadius: 999, backgroundColor: hatchColors.background.secondary, overflow: "hidden" },
+  statFill: { height: "100%", borderRadius: 999, backgroundColor: hatchColors.primary.default },
+  statValue: { marginTop: 4, fontSize: 12, color: hatchColors.text.tertiary },
+  statHint: { marginTop: 2, fontSize: 12, color: hatchColors.text.secondary },
 });

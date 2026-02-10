@@ -1,37 +1,227 @@
-// Savvy Lesson Detail — Complete Implementation
-import { hatchColors } from "@/constants/theme";
-import { findLessonById } from "@/data/moms-investment-journey";
+import { hatchColors, hatchShadows } from "@/constants/theme";
+import {
+  InteractiveTask,
+  QUIZ_PASSING_PERCENT,
+  findLessonById,
+  getNextLesson,
+  isLessonUnlocked,
+} from "@/data/moms-investment-journey";
 import { useApp } from "@/lib/app-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
+import React, { useMemo, useState } from "react";
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+type PracticeInputs = Record<string, Record<string, string>>;
+type PracticeChoices = Record<string, string>;
+
+type PracticeResult = {
+  title: string;
+  detail: string;
+  tone: "good" | "warn" | "neutral";
+};
+
+function sanitizeNumberInput(value: string): string {
+  return value.replace(/[^0-9.,]/g, "");
+}
+
+function parseNumber(value?: string): number {
+  if (!value) return 0;
+  const parsed = Number(value.replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function getPracticeResult(taskId: string, values: Record<string, string>): PracticeResult | null {
+  if (taskId === "cashflow_snapshot") {
+    const income = parseNumber(values.income);
+    const fixed = parseNumber(values.fixed);
+    const flex = parseNumber(values.flex);
+    if (income <= 0) return null;
+    const remaining = income - fixed - flex;
+
+    if (remaining >= 0) {
+      return {
+        title: `Remaining this month: ${formatNumber(remaining)}`,
+        detail: "Good. Protect essentials first, then decide where the remainder should go.",
+        tone: "good",
+      };
+    }
+
+    return {
+      title: `Current gap: ${formatNumber(Math.abs(remaining))}`,
+      detail: "Reduce one flexible category first and re-check this snapshot.",
+      tone: "warn",
+    };
+  }
+
+  if (taskId === "bucket_split_planner") {
+    const income = parseNumber(values.income);
+    const essentialsPct = parseNumber(values.essentials_pct);
+    const flexPct = parseNumber(values.flex_pct);
+    if (income <= 0) return null;
+
+    const futurePct = 100 - essentialsPct - flexPct;
+    if (futurePct < 0) {
+      return {
+        title: "Percent total is above 100%",
+        detail: "Lower essentials or life/flex percentages so future stays positive.",
+        tone: "warn",
+      };
+    }
+
+    const essentialsAmount = (income * essentialsPct) / 100;
+    const flexAmount = (income * flexPct) / 100;
+    const futureAmount = income - essentialsAmount - flexAmount;
+
+    return {
+      title: `Future bucket: ${formatNumber(futureAmount)} (${futurePct.toFixed(0)}%)`,
+      detail: `Essentials ${formatNumber(essentialsAmount)} | Life/Flex ${formatNumber(flexAmount)}`,
+      tone: "good",
+    };
+  }
+
+  if (taskId === "unit_price_lab") {
+    const aPrice = parseNumber(values.a_price);
+    const aSize = parseNumber(values.a_size);
+    const bPrice = parseNumber(values.b_price);
+    const bSize = parseNumber(values.b_size);
+    if (aPrice <= 0 || aSize <= 0 || bPrice <= 0 || bSize <= 0) return null;
+
+    const unitA = (aPrice / aSize) * 100;
+    const unitB = (bPrice / bSize) * 100;
+    const cheaper = unitA < unitB ? "A" : unitB < unitA ? "B" : "Tie";
+
+    return {
+      title: `A: ${formatNumber(unitA)} /100 | B: ${formatNumber(unitB)} /100`,
+      detail:
+        cheaper === "Tie"
+          ? "Both are equal in unit price."
+          : `Product ${cheaper} is better value per 100g/ml.`,
+      tone: "good",
+    };
+  }
+
+  if (taskId === "emergency_target_builder") {
+    const essentials = parseNumber(values.essentials);
+    const months = parseNumber(values.months);
+    if (essentials <= 0 || months <= 0) return null;
+
+    const target = essentials * months;
+    return {
+      title: `Starter target: ${formatNumber(target)}`,
+      detail: "Set one automatic transfer so this target grows every month.",
+      tone: "good",
+    };
+  }
+
+  if (taskId === "automation_rule_builder") {
+    const defaultAmount = parseNumber(values.default_amount);
+    const fallbackAmount = parseNumber(values.fallback_amount);
+    if (defaultAmount <= 0 || fallbackAmount <= 0) return null;
+
+    return {
+      title: `Default year: ${formatNumber(defaultAmount * 12)} | Fallback year: ${formatNumber(fallbackAmount * 12)}`,
+      detail: "The fallback keeps your habit alive during difficult months.",
+      tone: "neutral",
+    };
+  }
+
+  if (taskId === "long_term_growth_check") {
+    const monthly = parseNumber(values.monthly);
+    const years = parseNumber(values.years);
+    const returnRate = parseNumber(values.return_rate) || 5;
+    if (monthly <= 0 || years <= 0) return null;
+
+    const n = years * 12;
+    const monthlyRate = returnRate / 100 / 12;
+    const contributions = monthly * n;
+    const estimatedValue =
+      monthlyRate > 0
+        ? monthly * ((Math.pow(1 + monthlyRate, n) - 1) / monthlyRate)
+        : contributions;
+    const estimatedGrowth = Math.max(0, estimatedValue - contributions);
+
+    return {
+      title: `Estimated value: ${formatNumber(estimatedValue)}`,
+      detail: `Contributions ${formatNumber(contributions)} | Estimated growth ${formatNumber(estimatedGrowth)}`,
+      tone: "good",
+    };
+  }
+
+  return null;
+}
+
+function getTaskCompletionCount(
+  tasks: InteractiveTask[],
+  taskInputs: PracticeInputs,
+  taskChoices: PracticeChoices
+): number {
+  let completed = 0;
+
+  tasks.forEach((task) => {
+    if (task.type === "scenario_choice" || task.type === "comparison_picker" || task.type === "multi_choice") {
+      if (taskChoices[task.task_id]) completed += 1;
+      return;
+    }
+
+    const fields = Array.isArray(task.fields) ? task.fields : [];
+    if (fields.length === 0) return;
+
+    const values = taskInputs[task.task_id] || {};
+    const allFilled = fields.every((field: any) => {
+      const key = typeof field?.key === "string" ? field.key : "";
+      return key && values[key] && values[key].trim().length > 0;
+    });
+    if (allFilled) completed += 1;
+  });
+
+  return completed;
+}
 
 export default function LessonDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { markLessonComplete, isLessonCompleted } = useApp();
-  const [showCelebration, setShowCelebration] = useState(false);
-  const [currentQuizIndex, setCurrentQuizIndex] = useState(0);
-  const [quizAnswers, setQuizAnswers] = useState<Record<string, number>>({});
-  const [showQuizResults, setShowQuizResults] = useState(false);
+  const { completedLessons, markLessonComplete, isLessonCompleted } = useApp();
 
-  // Find lesson in course data
   const lesson = findLessonById(id as string);
+
+  const [quizAnswers, setQuizAnswers] = useState<Record<string, number>>({});
+  const [quizIndex, setQuizIndex] = useState(0);
+  const [showQuizResult, setShowQuizResult] = useState(false);
+  const [quizPassed, setQuizPassed] = useState(false);
+  const [showCelebration, setShowCelebration] = useState(false);
+
+  const [taskInputs, setTaskInputs] = useState<PracticeInputs>({});
+  const [taskChoices, setTaskChoices] = useState<PracticeChoices>({});
 
   if (!lesson) {
     return (
-      <View style={[styles.container, { paddingTop: insets.top }]}>
-        <View style={styles.errorContainer}>
-          <Ionicons name="alert-circle-outline" size={64} color={hatchColors.text.tertiary} />
-          <Text style={styles.errorText}>Lesson not found</Text>
-          <Text style={styles.errorSubtext}>ID: {id}</Text>
-          <Pressable onPress={() => router.back()} style={styles.backLink}>
-            <Text style={styles.backLinkText}>Go back to Academy</Text>
+      <View style={[s.root, { paddingTop: insets.top + 16 }]}>
+        <View style={s.centerCard}>
+          <Ionicons name="alert-circle-outline" size={52} color={hatchColors.text.tertiary} />
+          <Text style={s.centerTitle}>Lesson not found</Text>
+          <Text style={s.centerText}>ID: {id}</Text>
+          <Pressable style={s.primaryBtn} onPress={() => router.back()}>
+            <Text style={s.primaryBtnText}>Back</Text>
           </Pressable>
         </View>
       </View>
@@ -39,703 +229,758 @@ export default function LessonDetailScreen() {
   }
 
   const isCompleted = isLessonCompleted(lesson.lesson_id);
+  const unlocked = isLessonUnlocked(lesson.lesson_id, completedLessons);
+  const locked = !isCompleted && !unlocked;
 
-  const handleComplete = async () => {
-    if (isCompleted) return;
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    await markLessonComplete(lesson.lesson_id);
-    setShowCelebration(true);
-  };
+  const quizQuestions = lesson.quiz?.questions ?? [];
+  const hasQuiz = quizQuestions.length > 0;
+  const nextLesson = getNextLesson(lesson.lesson_id);
+  const practiceTasks = lesson.interactive_tasks ?? [];
 
-  const handleCloseCelebration = () => {
-    setShowCelebration(false);
-    router.back();
-  };
+  const answeredCount = quizQuestions.filter(
+    (question) => quizAnswers[question.id] !== undefined
+  ).length;
+  const completedPracticeCount = useMemo(
+    () => getTaskCompletionCount(practiceTasks, taskInputs, taskChoices),
+    [practiceTasks, taskChoices, taskInputs]
+  );
+
+  const score = useMemo(() => {
+    if (!hasQuiz) return { correct: 0, total: 0, percent: 100 };
+
+    let correct = 0;
+    for (const question of quizQuestions) {
+      if (question.type === "multi_choice") {
+        if (quizAnswers[question.id] === question.answer_index) correct += 1;
+      } else {
+        const answerAsBool = quizAnswers[question.id] === 0;
+        if (answerAsBool === question.answer) correct += 1;
+      }
+    }
+
+    const percent = quizQuestions.length
+      ? Math.round((correct / quizQuestions.length) * 100)
+      : 0;
+
+    return { correct, total: quizQuestions.length, percent };
+  }, [hasQuiz, quizAnswers, quizQuestions]);
+
+  const completionReady = isCompleted || !hasQuiz || quizPassed;
 
   const handleQuizAnswer = (questionId: string, answerIndex: number) => {
     setQuizAnswers((prev) => ({ ...prev, [questionId]: answerIndex }));
   };
 
-  const quizQuestions = lesson.quiz?.questions || [];
-  const currentQuestion = quizQuestions[currentQuizIndex];
-  const allQuestionsAnswered = quizQuestions.every((q) => quizAnswers[q.id] !== undefined);
-
-  const calculateQuizScore = () => {
-    let correct = 0;
-    quizQuestions.forEach((q) => {
-      if (q.type === "multi_choice" && quizAnswers[q.id] === q.answer_index) {
-        correct++;
-      } else if (q.type === "true_false") {
-        const userAnswer = quizAnswers[q.id] === 0; // 0 = true, 1 = false
-        if (userAnswer === q.answer) correct++;
-      }
-    });
-    return correct;
+  const updateTaskInput = (taskId: string, key: string, value: string) => {
+    const normalized = sanitizeNumberInput(value);
+    setTaskInputs((prev) => ({
+      ...prev,
+      [taskId]: {
+        ...(prev[taskId] || {}),
+        [key]: normalized,
+      },
+    }));
   };
 
-  return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top }]}>
-        <View style={styles.headerContent}>
-          <Pressable onPress={() => router.back()} style={styles.headerButton}>
-            <Ionicons name="arrow-back" size={24} color={hatchColors.text.primary} />
-          </Pressable>
-          <View style={styles.headerBadge}>
-            <Text style={styles.headerBadgeText}>{lesson.duration}</Text>
+  const selectTaskOption = (taskId: string, optionId: string) => {
+    setTaskChoices((prev) => ({ ...prev, [taskId]: optionId }));
+    Haptics.selectionAsync();
+  };
+
+  const handleSubmitQuiz = async () => {
+    const passed = score.percent >= QUIZ_PASSING_PERCENT;
+    setQuizPassed(passed);
+    setShowQuizResult(true);
+
+    if (!passed) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      return;
+    }
+
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (!isCompleted) {
+      await markLessonComplete(lesson.lesson_id);
+    }
+    setShowCelebration(true);
+  };
+
+  const handleRetryQuiz = () => {
+    setShowQuizResult(false);
+    setQuizPassed(false);
+    setQuizIndex(0);
+  };
+
+  const handleCompleteNoQuiz = async () => {
+    if (isCompleted || hasQuiz) return;
+    await markLessonComplete(lesson.lesson_id);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setShowCelebration(true);
+  };
+
+  const handleContinueAfterCelebration = () => {
+    setShowCelebration(false);
+
+    if (nextLesson) {
+      router.replace(`/lesson/${nextLesson.lesson_id}` as any);
+      return;
+    }
+
+    router.replace("/(tabs)/academy" as any);
+  };
+
+  const handleBottomAction = async () => {
+    if (isCompleted) {
+      if (nextLesson) {
+        router.replace(`/lesson/${nextLesson.lesson_id}` as any);
+      } else {
+        router.replace("/(tabs)/academy" as any);
+      }
+      return;
+    }
+
+    if (!hasQuiz) {
+      await handleCompleteNoQuiz();
+    }
+  };
+
+  const renderPracticeTask = (task: InteractiveTask, index: number) => {
+    const fields = Array.isArray(task.fields) ? task.fields : [];
+    const options = Array.isArray(task.options) ? task.options : [];
+    const values = taskInputs[task.task_id] || {};
+    const selectedOptionId = taskChoices[task.task_id];
+    const selectedOption = options.find((option: any, optionIndex) => {
+      const optionId =
+        typeof option?.id === "string" && option.id.trim() ? option.id : `option-${optionIndex}`;
+      return optionId === selectedOptionId;
+    });
+    const result = getPracticeResult(task.task_id, values);
+
+    return (
+      <Animated.View
+        key={`${task.task_id}-${index}`}
+        entering={FadeInDown.delay(100 + index * 40).duration(260)}
+        style={s.practiceCard}
+      >
+        <Text style={s.practiceTitle}>{task.title}</Text>
+        {task.description ? <Text style={s.practiceDescription}>{task.description}</Text> : null}
+
+        {fields.length > 0 ? (
+          <View style={s.fieldGroup}>
+            {fields.map((field: any, fieldIndex) => {
+              const key = typeof field?.key === "string" ? field.key : `field_${fieldIndex}`;
+              const label = typeof field?.label === "string" ? field.label : `Field ${fieldIndex + 1}`;
+              const placeholder = typeof field?.placeholder === "string" ? field.placeholder : "0";
+
+              return (
+                <View key={`${task.task_id}-${key}`} style={s.fieldRow}>
+                  <Text style={s.fieldLabel}>{label}</Text>
+                  <TextInput
+                    value={values[key] || ""}
+                    onChangeText={(value) => updateTaskInput(task.task_id, key, value)}
+                    keyboardType="decimal-pad"
+                    placeholder={placeholder}
+                    placeholderTextColor={hatchColors.text.secondary}
+                    style={s.fieldInput}
+                  />
+                </View>
+              );
+            })}
           </View>
+        ) : null}
+
+        {options.length > 0 ? (
+          <View>
+            {options.map((option: any, optionIndex) => {
+              const optionId =
+                typeof option?.id === "string" && option.id.trim() ? option.id : `option-${optionIndex}`;
+              const selected = selectedOptionId === optionId;
+              return (
+                <Pressable
+                  key={`${task.task_id}-${optionId}-${optionIndex}`}
+                  onPress={() => selectTaskOption(task.task_id, optionId)}
+                  style={[s.optionBtn, selected && s.optionBtnSelected]}
+                >
+                  <Text style={[s.optionText, selected && s.optionTextSelected]}>
+                    {typeof option?.label === "string" ? option.label : "Option"}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
+
+        {result ? (
+          <View
+            style={[
+              s.resultCard,
+              result.tone === "good" && s.resultCardGood,
+              result.tone === "warn" && s.resultCardWarn,
+            ]}
+          >
+            <Text style={s.resultCardTitle}>{result.title}</Text>
+            <Text style={s.resultCardText}>{result.detail}</Text>
+          </View>
+        ) : null}
+
+        {selectedOption?.feedback ? (
+          <Text style={s.feedbackText}>{String(selectedOption.feedback)}</Text>
+        ) : null}
+
+        {task.hint ? <Text style={s.hintText}>{task.hint}</Text> : null}
+      </Animated.View>
+    );
+  };
+
+  if (locked) {
+    return (
+      <View style={[s.root, { paddingTop: insets.top + 16 }]}>
+        <View style={s.centerCard}>
+          <Ionicons name="lock-closed" size={52} color={hatchColors.text.tertiary} />
+          <Text style={s.centerTitle}>This lesson is locked</Text>
+          <Text style={s.centerText}>Complete the previous lesson first.</Text>
+          <Pressable style={s.primaryBtn} onPress={() => router.replace("/(tabs)/academy" as any)}>
+            <Text style={s.primaryBtnText}>Go to academy</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
+  const currentQuestion = quizQuestions[quizIndex];
+
+  return (
+    <View style={s.root}>
+      <View style={[s.header, { paddingTop: insets.top + 8 }]}>
+        <Pressable onPress={() => router.back()} style={s.headerBtn}>
+          <Ionicons name="chevron-back" size={22} color={hatchColors.text.primary} />
+        </Pressable>
+        <View style={s.headerMeta}>
+          <Text style={s.headerDuration}>{lesson.duration}</Text>
         </View>
       </View>
 
       <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 100 }]}
         showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 120 }}
       >
-        {/* Title Section */}
-        <Animated.View entering={FadeInDown.duration(500)} style={styles.titleSection}>
-          <Text style={styles.lessonTitle}>{lesson.title}</Text>
-          <Text style={styles.lessonObjective}>{lesson.objective}</Text>
+        <Animated.View entering={FadeInDown.duration(300)}>
+          <Text style={s.title}>{lesson.title}</Text>
+          <Text style={s.objective}>{lesson.objective}</Text>
         </Animated.View>
 
-        {/* Content Blocks */}
-        {lesson.content_blocks && lesson.content_blocks.length > 0 && (
-          <Animated.View entering={FadeInDown.delay(100).duration(500)}>
-            {lesson.content_blocks.map((block, index) => (
-              <View key={index} style={styles.contentBlock}>
-                {block.type === "warm_intro" && (
-                  <View style={styles.warmIntroBlock}>
-                    <Ionicons name="heart" size={20} color={hatchColors.primary.default} />
-                    <Text style={styles.warmIntroText}>{block.text}</Text>
-                  </View>
-                )}
-                {block.type === "core_concept" && (
-                  <View style={styles.coreConceptBlock}>
-                    <Text style={styles.coreConceptLabel}>KEY CONCEPT</Text>
-                    <Text style={styles.coreConceptText}>{block.text}</Text>
-                  </View>
-                )}
-                {block.type === "guided_example" && (
-                  <View style={styles.guidedExampleBlock}>
-                    <Ionicons name="bulb-outline" size={20} color={hatchColors.accent.amber} />
-                    <Text style={styles.guidedExampleText}>{block.text}</Text>
-                  </View>
-                )}
-              </View>
-            ))}
-          </Animated.View>
-        )}
+        <Animated.View entering={FadeInDown.delay(60).duration(260)} style={s.articleCard}>
+          {lesson.content_blocks?.map((block, index) => (
+            <Text key={`${lesson.lesson_id}-paragraph-${index}`} style={[s.paragraph, index === 0 && s.paragraphLead]}>
+              {block.text}
+            </Text>
+          ))}
+        </Animated.View>
 
-        {/* Interactive Tasks */}
-        {lesson.interactive_tasks && lesson.interactive_tasks.length > 0 && (
-          <Animated.View entering={FadeInDown.delay(200).duration(500)}>
-            <Text style={styles.sectionTitle}>Interactive Tasks</Text>
-            {lesson.interactive_tasks.map((task, index) => (
-              <View key={task.task_id} style={styles.taskCard}>
-                <View style={styles.taskHeader}>
-                  <View style={styles.taskIcon}>
-                    <Ionicons
-                      name={
-                        task.type === "slider"
-                          ? "options"
-                          : task.type === "money_input"
-                            ? "cash-outline"
-                            : task.type === "quick_calc"
-                              ? "calculator"
-                              : task.type === "mini_plan_builder"
-                                ? "construct"
-                                : task.type === "comparison_picker"
-                                  ? "git-compare"
-                                  : "create-outline"
-                      }
-                      size={20}
-                      color={hatchColors.primary.default}
-                    />
-                  </View>
-                  <Text style={styles.taskTitle}>{task.title}</Text>
-                </View>
-                <Text style={styles.taskType}>{task.type.replace(/_/g, " ").toUpperCase()}</Text>
-                <View style={styles.taskPlaceholder}>
-                  <Text style={styles.taskPlaceholderText}>Interactive task coming soon</Text>
-                </View>
-              </View>
-            ))}
-          </Animated.View>
-        )}
+        {practiceTasks.length > 0 ? (
+          <View style={s.section}>
+            <Text style={s.sectionTitle}>Guided practice</Text>
+            {practiceTasks.map((task, index) => renderPracticeTask(task, index))}
+          </View>
+        ) : null}
 
-        {/* Quiz Section */}
-        {lesson.quiz && quizQuestions.length > 0 && (
-          <Animated.View entering={FadeInDown.delay(300).duration(500)}>
-            <Text style={styles.sectionTitle}>Quick Quiz</Text>
-            <View style={styles.quizCard}>
-              {!showQuizResults ? (
+        {hasQuiz ? (
+          <Animated.View entering={FadeInDown.delay(220).duration(250)} style={s.section}>
+            <Text style={s.sectionTitle}>Lesson quiz</Text>
+            <View style={s.quizCard}>
+              {!showQuizResult ? (
                 <>
-                  <View style={styles.quizProgress}>
-                    <Text style={styles.quizProgressText}>
-                      Question {currentQuizIndex + 1} of {quizQuestions.length}
-                    </Text>
-                  </View>
+                  <Text style={s.quizProgress}>
+                    Question {quizIndex + 1} / {quizQuestions.length}
+                  </Text>
 
-                  {currentQuestion && (
-                    <View style={styles.questionContainer}>
-                      <Text style={styles.questionText}>{currentQuestion.prompt}</Text>
+                  {currentQuestion ? (
+                    <View>
+                      <Text style={s.quizQuestion}>{currentQuestion.prompt}</Text>
 
                       {currentQuestion.type === "multi_choice" &&
-                        currentQuestion.options?.map((option, optIndex) => (
-                          <Pressable
-                            key={optIndex}
-                            onPress={() => handleQuizAnswer(currentQuestion.id, optIndex)}
-                            style={[
-                              styles.optionButton,
-                              quizAnswers[currentQuestion.id] === optIndex && styles.optionSelected,
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.optionText,
-                                quizAnswers[currentQuestion.id] === optIndex && styles.optionTextSelected,
-                              ]}
+                        currentQuestion.options?.map((option, index) => {
+                          const selected = quizAnswers[currentQuestion.id] === index;
+                          return (
+                            <Pressable
+                              key={`${currentQuestion.id}-${index}`}
+                              onPress={() => handleQuizAnswer(currentQuestion.id, index)}
+                              style={[s.optionBtn, selected && s.optionBtnSelected]}
                             >
-                              {option}
-                            </Text>
-                          </Pressable>
-                        ))}
+                              <Text style={[s.optionText, selected && s.optionTextSelected]}>
+                                {option}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
 
-                      {currentQuestion.type === "true_false" && (
-                        <View style={styles.trueFalseRow}>
-                          <Pressable
-                            onPress={() => handleQuizAnswer(currentQuestion.id, 0)}
-                            style={[
-                              styles.trueFalseButton,
-                              quizAnswers[currentQuestion.id] === 0 && styles.optionSelected,
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.optionText,
-                                quizAnswers[currentQuestion.id] === 0 && styles.optionTextSelected,
-                              ]}
-                            >
-                              True
-                            </Text>
-                          </Pressable>
-                          <Pressable
-                            onPress={() => handleQuizAnswer(currentQuestion.id, 1)}
-                            style={[
-                              styles.trueFalseButton,
-                              quizAnswers[currentQuestion.id] === 1 && styles.optionSelected,
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.optionText,
-                                quizAnswers[currentQuestion.id] === 1 && styles.optionTextSelected,
-                              ]}
-                            >
-                              False
-                            </Text>
-                          </Pressable>
+                      {currentQuestion.type === "true_false" ? (
+                        <View style={s.trueFalseRow}>
+                          {["True", "False"].map((label, index) => {
+                            const selected = quizAnswers[currentQuestion.id] === index;
+                            return (
+                              <Pressable
+                                key={`${currentQuestion.id}-${label}-${index}`}
+                                onPress={() => handleQuizAnswer(currentQuestion.id, index)}
+                                style={[s.trueFalseBtn, selected && s.optionBtnSelected]}
+                              >
+                                <Text style={[s.optionText, selected && s.optionTextSelected]}>
+                                  {label}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
                         </View>
-                      )}
+                      ) : null}
                     </View>
-                  )}
+                  ) : null}
 
-                  <View style={styles.quizNavigation}>
-                    {currentQuizIndex > 0 && (
+                  <View style={s.quizNavRow}>
+                    <Pressable
+                      disabled={quizIndex === 0}
+                      onPress={() => setQuizIndex((value) => Math.max(0, value - 1))}
+                      style={[s.ghostBtn, quizIndex === 0 && s.disabledBtn]}
+                    >
+                      <Text style={s.ghostBtnText}>Back</Text>
+                    </Pressable>
+
+                    {quizIndex < quizQuestions.length - 1 ? (
                       <Pressable
-                        onPress={() => setCurrentQuizIndex((i) => i - 1)}
-                        style={styles.quizNavButton}
+                        onPress={() => setQuizIndex((value) => Math.min(quizQuestions.length - 1, value + 1))}
+                        style={s.ghostBtn}
                       >
-                        <Ionicons name="chevron-back" size={20} color={hatchColors.text.secondary} />
-                        <Text style={styles.quizNavText}>Previous</Text>
-                      </Pressable>
-                    )}
-                    <View style={{ flex: 1 }} />
-                    {currentQuizIndex < quizQuestions.length - 1 ? (
-                      <Pressable
-                        onPress={() => setCurrentQuizIndex((i) => i + 1)}
-                        style={styles.quizNavButton}
-                      >
-                        <Text style={styles.quizNavText}>Next</Text>
-                        <Ionicons name="chevron-forward" size={20} color={hatchColors.text.secondary} />
+                        <Text style={s.ghostBtnText}>Next</Text>
                       </Pressable>
                     ) : (
-                      allQuestionsAnswered && (
-                        <Pressable
-                          onPress={() => setShowQuizResults(true)}
-                          style={styles.submitQuizButton}
-                        >
-                          <Text style={styles.submitQuizText}>See Results</Text>
-                        </Pressable>
-                      )
+                      <Pressable
+                        disabled={answeredCount !== quizQuestions.length}
+                        onPress={handleSubmitQuiz}
+                        style={[s.submitBtn, answeredCount !== quizQuestions.length && s.disabledBtn]}
+                      >
+                        <Text style={s.submitBtnText}>Check answers</Text>
+                      </Pressable>
                     )}
                   </View>
                 </>
               ) : (
-                <View style={styles.quizResults}>
-                  <View style={styles.quizScore}>
-                    <Text style={styles.quizScoreNumber}>
-                      {calculateQuizScore()}/{quizQuestions.length}
-                    </Text>
-                    <Text style={styles.quizScoreLabel}>Correct</Text>
-                  </View>
-                  {quizQuestions.map((q, i) => (
-                    <View key={q.id} style={styles.resultItem}>
-                      <Ionicons
-                        name={
-                          (q.type === "multi_choice" && quizAnswers[q.id] === q.answer_index) ||
-                            (q.type === "true_false" && (quizAnswers[q.id] === 0) === q.answer)
-                            ? "checkmark-circle"
-                            : "close-circle"
-                        }
-                        size={20}
-                        color={
-                          (q.type === "multi_choice" && quizAnswers[q.id] === q.answer_index) ||
-                            (q.type === "true_false" && (quizAnswers[q.id] === 0) === q.answer)
-                            ? hatchColors.status.success
-                            : hatchColors.status.error
-                        }
-                      />
-                      <View style={styles.resultContent}>
-                        <Text style={styles.resultQuestion}>{q.prompt}</Text>
-                        <Text style={styles.resultExplanation}>{q.explanation}</Text>
-                      </View>
-                    </View>
-                  ))}
+                <View>
+                  <Text style={s.resultScore}>
+                    {score.correct}/{score.total} correct ({score.percent}%)
+                  </Text>
+                  <Text style={s.resultStatus}>
+                    {quizPassed
+                      ? "Passed. Great work."
+                      : `Not passed yet. You need ${QUIZ_PASSING_PERCENT}% and can retry now.`}
+                  </Text>
+
+                  {!quizPassed ? (
+                    <Pressable onPress={handleRetryQuiz} style={s.submitBtn}>
+                      <Text style={s.submitBtnText}>Retry quiz</Text>
+                    </Pressable>
+                  ) : null}
                 </View>
               )}
             </View>
           </Animated.View>
-        )}
+        ) : null}
+
+        <Animated.View entering={FadeInDown.delay(250).duration(250)} style={s.section}>
+          <Text style={s.sectionTitle}>Summary</Text>
+          <View style={s.infoCard}>
+            <Text style={s.infoText}>{lesson.objective}</Text>
+            {practiceTasks.length > 0 ? (
+              <Text style={s.summaryMeta}>
+                Guided practice completed: {completedPracticeCount}/{practiceTasks.length}
+              </Text>
+            ) : null}
+            {hasQuiz && !isCompleted ? (
+              <Text style={s.summaryHint}>This lesson is completed automatically when you pass the quiz.</Text>
+            ) : null}
+          </View>
+        </Animated.View>
       </ScrollView>
 
-      {/* Complete Button */}
-      <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 16 }]}>
+      <View style={[s.bottomBar, { paddingBottom: insets.bottom + 14 }]}>
         <Pressable
-          onPress={handleComplete}
-          disabled={isCompleted}
-          style={({ pressed }) => [
-            styles.completeButton,
-            isCompleted && styles.completedButton,
-            pressed && !isCompleted && styles.buttonPressed,
-          ]}
+          onPress={handleBottomAction}
+          style={[s.primaryBtn, !completionReady && !isCompleted && s.disabledBtn]}
+          disabled={!isCompleted && hasQuiz}
         >
-          <Text style={[styles.completeButtonText, isCompleted && styles.completedButtonText]}>
-            {isCompleted ? "✓ Completed" : "Mark as Complete"}
+          <Text style={s.primaryBtnText}>
+            {isCompleted
+              ? nextLesson
+                ? "Go to next lesson"
+                : "Back to academy"
+              : hasQuiz
+                ? "Pass quiz to complete"
+                : "Complete lesson"}
           </Text>
         </Pressable>
       </View>
 
-      {/* Celebration Modal */}
-      <Modal visible={showCelebration} animationType="fade" transparent>
-        <View style={styles.celebrationOverlay}>
-          <Animated.View entering={FadeIn.duration(400)} style={styles.celebrationCard}>
-            <View style={styles.celebrationIcon}>
-              <Ionicons name="trophy" size={64} color={hatchColors.accent.amber} />
-            </View>
-            <Text style={styles.celebrationTitle}>Well done! 🎉</Text>
-            <Text style={styles.celebrationText}>
-              You've completed "{lesson.title}" and earned 10 XP!
+      <Modal visible={showCelebration} transparent animationType="fade">
+        <View style={s.overlay}>
+          <View style={s.modalCard}>
+            <Ionicons name="trophy" size={54} color={hatchColors.primary.default} />
+            <Text style={s.modalTitle}>Congratulations</Text>
+            <Text style={s.modalText}>
+              Lesson completed. {nextLesson ? `Next lesson unlocked: ${nextLesson.title}` : "You finished all lessons."}
             </Text>
-            <Pressable onPress={handleCloseCelebration} style={styles.celebrationButton}>
-              <Text style={styles.celebrationButtonText}>Continue</Text>
+
+            <Pressable style={s.primaryBtn} onPress={handleContinueAfterCelebration}>
+              <Text style={s.primaryBtnText}>{nextLesson ? "Next lesson" : "Back to academy"}</Text>
             </Pressable>
-          </Animated.View>
+          </View>
         </View>
       </Modal>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: hatchColors.background.primary,
-  },
+const s = StyleSheet.create({
+  root: { flex: 1, backgroundColor: hatchColors.background.primary },
   header: {
-    backgroundColor: hatchColors.background.primary,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: hatchColors.border.light,
-  },
-  headerContent: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingBottom: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: hatchColors.border.default,
   },
-  headerButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: hatchColors.background.secondary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  headerBadge: {
-    backgroundColor: hatchColors.primary.muted,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-  },
-  headerBadgeText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: hatchColors.primary.default,
-  },
-  scrollContent: {
-    padding: 24,
-  },
-  titleSection: {
-    marginBottom: 32,
-  },
-  lessonTitle: {
-    fontSize: 28,
-    fontWeight: "800",
-    color: hatchColors.text.primary,
-    marginBottom: 12,
-  },
-  lessonObjective: {
-    fontSize: 16,
-    color: hatchColors.text.secondary,
-    lineHeight: 24,
-  },
-  contentBlock: {
-    marginBottom: 20,
-  },
-  warmIntroBlock: {
-    flexDirection: "row",
-    backgroundColor: hatchColors.primary.muted,
-    borderRadius: 16,
-    padding: 16,
-    gap: 12,
-    alignItems: "flex-start",
-  },
-  warmIntroText: {
-    flex: 1,
-    fontSize: 15,
-    color: hatchColors.text.primary,
-    lineHeight: 22,
-    fontStyle: "italic",
-  },
-  coreConceptBlock: {
-    backgroundColor: hatchColors.background.secondary,
-    borderRadius: 16,
-    padding: 20,
-    borderLeftWidth: 4,
-    borderLeftColor: hatchColors.primary.default,
-  },
-  coreConceptLabel: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: hatchColors.text.tertiary,
-    letterSpacing: 1,
-    marginBottom: 8,
-  },
-  coreConceptText: {
-    fontSize: 16,
-    color: hatchColors.text.primary,
-    lineHeight: 24,
-    fontWeight: "600",
-  },
-  guidedExampleBlock: {
-    flexDirection: "row",
-    backgroundColor: hatchColors.accent.warm,
-    borderRadius: 16,
-    padding: 16,
-    gap: 12,
-    alignItems: "flex-start",
-  },
-  guidedExampleText: {
-    flex: 1,
-    fontSize: 14,
-    color: hatchColors.accent.warmText,
-    lineHeight: 20,
-  },
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: hatchColors.text.tertiary,
-    letterSpacing: 0.5,
-    marginBottom: 16,
-    marginTop: 16,
-    textTransform: "uppercase",
-  },
-  taskCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  taskHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 8,
-  },
-  taskIcon: {
+  headerBtn: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: hatchColors.primary.muted,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: hatchColors.background.secondary,
   },
-  taskTitle: {
-    flex: 1,
-    fontSize: 16,
+  headerMeta: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: hatchColors.primary.muted,
+  },
+  headerDuration: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: hatchColors.primary.default,
+  },
+  title: {
+    marginTop: 16,
+    fontSize: 28,
+    fontWeight: "800",
+    color: hatchColors.text.primary,
+  },
+  objective: {
+    marginTop: 6,
+    fontSize: 15,
+    color: hatchColors.text.secondary,
+    lineHeight: 21,
+  },
+  articleCard: {
+    marginTop: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: hatchColors.border.default,
+    backgroundColor: "#FFFFFF",
+    padding: 14,
+  },
+  paragraph: {
+    fontSize: 15,
+    color: hatchColors.text.primary,
+    lineHeight: 22,
+    marginBottom: 10,
+  },
+  paragraphLead: {
+    fontWeight: "600",
+  },
+  section: {
+    marginTop: 20,
+  },
+  sectionTitle: {
+    marginBottom: 10,
+    fontSize: 12,
+    fontWeight: "800",
+    color: hatchColors.text.tertiary,
+    textTransform: "uppercase",
+  },
+  practiceCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: hatchColors.border.default,
+    backgroundColor: "#FFFFFF",
+    padding: 12,
+    marginBottom: 10,
+    ...hatchShadows.sm,
+  },
+  practiceTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: hatchColors.text.primary,
+  },
+  practiceDescription: {
+    marginTop: 5,
+    fontSize: 13,
+    color: hatchColors.text.secondary,
+    lineHeight: 19,
+  },
+  fieldGroup: {
+    marginTop: 8,
+    gap: 8,
+  },
+  fieldRow: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: hatchColors.border.default,
+    backgroundColor: hatchColors.background.secondary,
+    padding: 10,
+  },
+  fieldLabel: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: hatchColors.text.tertiary,
+    textTransform: "uppercase",
+    marginBottom: 6,
+  },
+  fieldInput: {
+    borderRadius: 8,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: hatchColors.border.default,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 15,
     fontWeight: "700",
     color: hatchColors.text.primary,
   },
-  taskType: {
-    fontSize: 10,
-    fontWeight: "700",
-    color: hatchColors.text.tertiary,
-    letterSpacing: 0.5,
-    marginBottom: 12,
-  },
-  taskPlaceholder: {
+  resultCard: {
+    marginTop: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: hatchColors.border.default,
     backgroundColor: hatchColors.background.secondary,
-    borderRadius: 12,
-    padding: 16,
-    alignItems: "center",
+    padding: 10,
   },
-  taskPlaceholderText: {
-    fontSize: 13,
+  resultCardGood: {
+    borderColor: hatchColors.primary.default,
+    backgroundColor: hatchColors.primary.muted,
+  },
+  resultCardWarn: {
+    borderColor: hatchColors.status.error,
+    backgroundColor: "rgba(239,68,68,0.08)",
+  },
+  resultCardTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: hatchColors.text.primary,
+  },
+  resultCardText: {
+    marginTop: 4,
+    fontSize: 12,
+    color: hatchColors.text.secondary,
+    lineHeight: 18,
+  },
+  feedbackText: {
+    marginTop: 8,
+    fontSize: 12,
+    color: hatchColors.text.secondary,
+    lineHeight: 18,
+  },
+  hintText: {
+    marginTop: 6,
+    fontSize: 12,
     color: hatchColors.text.tertiary,
+  },
+  infoCard: {
+    borderRadius: 14,
+    padding: 12,
+    backgroundColor: hatchColors.background.secondary,
+  },
+  infoText: {
+    fontSize: 14,
+    color: hatchColors.text.secondary,
+    lineHeight: 20,
   },
   quizCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: hatchColors.border.default,
     backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 2,
+    padding: 12,
+    ...hatchShadows.sm,
   },
   quizProgress: {
-    marginBottom: 16,
-  },
-  quizProgressText: {
     fontSize: 12,
     fontWeight: "700",
     color: hatchColors.text.tertiary,
   },
-  questionContainer: {
-    marginBottom: 20,
-  },
-  questionText: {
-    fontSize: 17,
-    fontWeight: "600",
+  quizQuestion: {
+    marginTop: 8,
+    fontSize: 16,
+    fontWeight: "700",
     color: hatchColors.text.primary,
-    marginBottom: 16,
-    lineHeight: 24,
+    lineHeight: 22,
+    marginBottom: 8,
   },
-  optionButton: {
-    backgroundColor: hatchColors.background.secondary,
+  optionBtn: {
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 10,
-    borderWidth: 2,
-    borderColor: "transparent",
+    padding: 12,
+    borderWidth: 1,
+    borderColor: hatchColors.border.default,
+    marginBottom: 8,
+    backgroundColor: hatchColors.background.secondary,
   },
-  optionSelected: {
-    backgroundColor: hatchColors.primary.muted,
+  optionBtnSelected: {
     borderColor: hatchColors.primary.default,
+    backgroundColor: hatchColors.primary.muted,
   },
   optionText: {
-    fontSize: 15,
+    fontSize: 14,
     color: hatchColors.text.primary,
+    fontWeight: "600",
   },
   optionTextSelected: {
     color: hatchColors.primary.default,
-    fontWeight: "600",
   },
   trueFalseRow: {
     flexDirection: "row",
-    gap: 12,
+    gap: 8,
   },
-  trueFalseButton: {
+  trueFalseBtn: {
     flex: 1,
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: hatchColors.border.default,
     backgroundColor: hatchColors.background.secondary,
-    borderRadius: 12,
-    padding: 16,
     alignItems: "center",
-    borderWidth: 2,
-    borderColor: "transparent",
   },
-  quizNavigation: {
+  quizNavRow: {
+    marginTop: 8,
     flexDirection: "row",
+    justifyContent: "space-between",
     alignItems: "center",
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: hatchColors.border.light,
   },
-  quizNavButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
+  ghostBtn: {
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: hatchColors.background.secondary,
   },
-  quizNavText: {
-    fontSize: 14,
-    color: hatchColors.text.secondary,
-    fontWeight: "600",
-  },
-  submitQuizButton: {
-    backgroundColor: hatchColors.primary.default,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 12,
-  },
-  submitQuizText: {
-    fontSize: 14,
+  ghostBtnText: {
+    fontSize: 13,
     fontWeight: "700",
+    color: hatchColors.text.secondary,
+  },
+  submitBtn: {
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    backgroundColor: hatchColors.primary.default,
+  },
+  submitBtnText: {
+    fontSize: 13,
+    fontWeight: "800",
     color: "#FFFFFF",
   },
-  quizResults: {},
-  quizScore: {
-    alignItems: "center",
-    marginBottom: 24,
-  },
-  quizScoreNumber: {
-    fontSize: 48,
+  resultScore: {
+    fontSize: 18,
     fontWeight: "800",
-    color: hatchColors.primary.default,
-  },
-  quizScoreLabel: {
-    fontSize: 14,
-    color: hatchColors.text.secondary,
-  },
-  resultItem: {
-    flexDirection: "row",
-    gap: 12,
-    marginBottom: 16,
-  },
-  resultContent: {
-    flex: 1,
-  },
-  resultQuestion: {
-    fontSize: 14,
-    fontWeight: "600",
     color: hatchColors.text.primary,
-    marginBottom: 4,
   },
-  resultExplanation: {
-    fontSize: 13,
+  resultStatus: {
+    marginTop: 6,
+    fontSize: 14,
     color: hatchColors.text.secondary,
-    lineHeight: 18,
+    lineHeight: 20,
+    marginBottom: 10,
+  },
+  summaryMeta: {
+    marginTop: 6,
+    fontSize: 12,
+    color: hatchColors.text.tertiary,
+  },
+  summaryHint: {
+    marginTop: 4,
+    fontSize: 12,
+    color: hatchColors.text.secondary,
   },
   bottomBar: {
     position: "absolute",
-    bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: hatchColors.background.primary,
+    bottom: 0,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: hatchColors.border.light,
-    padding: 16,
+    borderTopColor: hatchColors.border.default,
+    backgroundColor: hatchColors.background.primary,
+    paddingHorizontal: 20,
+    paddingTop: 10,
   },
-  completeButton: {
-    backgroundColor: hatchColors.primary.default,
-    borderRadius: 16,
-    paddingVertical: 16,
+  primaryBtn: {
+    borderRadius: 14,
+    paddingVertical: 14,
     alignItems: "center",
+    backgroundColor: hatchColors.primary.default,
   },
-  completedButton: {
-    backgroundColor: hatchColors.background.secondary,
-  },
-  buttonPressed: {
-    opacity: 0.8,
-    transform: [{ scale: 0.98 }],
-  },
-  completeButtonText: {
-    fontSize: 16,
-    fontWeight: "700",
+  primaryBtnText: {
+    fontSize: 15,
+    fontWeight: "800",
     color: "#FFFFFF",
   },
-  completedButtonText: {
-    color: hatchColors.status.success,
+  disabledBtn: {
+    opacity: 0.5,
   },
-  errorContainer: {
+  overlay: {
     flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
     alignItems: "center",
     justifyContent: "center",
-    padding: 24,
+    padding: 20,
   },
-  errorText: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: hatchColors.text.primary,
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  errorSubtext: {
-    fontSize: 14,
-    color: hatchColors.text.tertiary,
-    marginBottom: 24,
-  },
-  backLink: {
-    backgroundColor: hatchColors.primary.muted,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 12,
-  },
-  backLinkText: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: hatchColors.primary.default,
-  },
-  celebrationOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-  },
-  celebrationCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 28,
-    padding: 32,
-    alignItems: "center",
+  modalCard: {
     width: "100%",
-    maxWidth: 320,
-  },
-  celebrationIcon: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: hatchColors.accent.warm,
+    maxWidth: 340,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    padding: 20,
     alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 24,
   },
-  celebrationTitle: {
-    fontSize: 24,
+  modalTitle: {
+    marginTop: 10,
+    fontSize: 22,
     fontWeight: "800",
     color: hatchColors.text.primary,
-    marginBottom: 12,
   },
-  celebrationText: {
-    fontSize: 15,
+  modalText: {
+    marginTop: 8,
+    marginBottom: 16,
+    textAlign: "center",
+    fontSize: 14,
+    color: hatchColors.text.secondary,
+    lineHeight: 20,
+  },
+  centerCard: {
+    marginTop: 80,
+    marginHorizontal: 20,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: hatchColors.border.default,
+    backgroundColor: "#FFFFFF",
+    padding: 20,
+    alignItems: "center",
+  },
+  centerTitle: {
+    marginTop: 10,
+    fontSize: 18,
+    fontWeight: "800",
+    color: hatchColors.text.primary,
+  },
+  centerText: {
+    marginTop: 6,
+    marginBottom: 14,
+    fontSize: 14,
     color: hatchColors.text.secondary,
     textAlign: "center",
-    lineHeight: 22,
-    marginBottom: 24,
-  },
-  celebrationButton: {
-    backgroundColor: hatchColors.primary.default,
-    paddingHorizontal: 32,
-    paddingVertical: 14,
-    borderRadius: 14,
-  },
-  celebrationButtonText: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#FFFFFF",
   },
 });

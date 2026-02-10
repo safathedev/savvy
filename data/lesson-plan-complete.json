@@ -1,0 +1,418 @@
+{
+    "course_id": "moms_investment_journey_v1",
+    "course_title": "Investment Journey for Moms",
+    "course_description": "A warm, practical, shame-free learning journey to build confidence in budgeting, saving, and investing. Short lessons with interactive tasks, saved inputs, and quick quizzes.",
+    "audience": {
+        "primary": "Mothers",
+        "experience_levels": [
+            "Beginner",
+            "Intermediate",
+            "Advanced"
+        ],
+        "tone": "Supportive, non-judgmental, practical, calm"
+    },
+    "global_settings": {
+        "lesson_duration_minutes": {
+            "min": 4,
+            "max": 8
+        },
+        "difficulty_progression": "gradual",
+        "money_anxiety_mode": {
+            "enabled_by_default": true,
+            "behavior": "Avoid showing big totals on home; keep numbers inside lessons and user-controlled dashboards."
+        },
+        "data_privacy_copy": "Your inputs stay editable. You can update or delete them anytime."
+    },
+    "user_profile_fields": {
+        "currency": {
+            "type": "string",
+            "default": "GBP"
+        },
+        "country": {
+            "type": "string",
+            "default": "UK"
+        },
+        "pay_frequency": {
+            "type": "enum",
+            "values": [
+                "monthly",
+                "weekly"
+            ],
+            "default": "monthly"
+        },
+        "household_type": {
+            "type": "enum",
+            "values": [
+                "single_parent",
+                "two_parents",
+                "other"
+            ],
+            "default": "other"
+        },
+        "kids_count": {
+            "type": "number",
+            "min": 0,
+            "max": 10
+        },
+        "stress_level_today": {
+            "type": "number",
+            "min": 1,
+            "max": 5,
+            "optional": true
+        },
+        "time_available_per_week_minutes": {
+            "type": "number",
+            "min": 10,
+            "max": 300,
+            "default": 30
+        }
+    },
+    "persisted_data_model": {
+        "editable_in_main_lesson_screen": true,
+        "sections": [
+            {
+                "key": "income",
+                "title": "Income",
+                "fields": [
+                    {
+                        "id": "net_income",
+                        "label": "Net income",
+                        "type": "money",
+                        "default": 0
+                    },
+                    {
+                        "id": "benefits_support",
+                        "label": "Benefits/support (optional)",
+                        "type": "money",
+                        "default": 0
+                    },
+                    {
+                        "id": "side_income",
+                        "label": "Side income (optional)",
+                        "type": "money",
+                        "default": 0
+                    }
+                ]
+            },
+            {
+                "key": "fixed_costs",
+                "title": "Fixed costs",
+                "fields": [
+                    {
+                        "id": "rent_mortgage",
+                        "label": "Rent/Mortgage",
+                        "type": "money",
+                        "default": 0
+                    },
+                    {
+                        "id": "utilities",
+                        "label": "Utilities",
+                        "type": "money",
+                        "default": 0
+                    },
+                    {
+                        "id": "internet_phone",
+                        "label": "Internet/Phone",
+                        "type": "money",
+                        "default": 0
+                    },
+                    {
+                        "id": "insurance_total",
+                        "label": "Insurance (total)",
+                        "type": "money",
+                        "default": 0
+                    },
+                    {
+                        "id": "childcare",
+                        "label": "Childcare",
+                        "type": "money",
+                        "default": 0
+                    },
+                    {
+                        "id": "transport",
+                        "label": "Transport",
+                        "type": "money",
+                        "default": 0
+                    },
+                    {
+                        "id": "debt_min_payments",
+                        "label": "Debt minimum payments",
+                        "type": "money",
+                        "default": 0
+                    }
+                ]
+            },
+            {
+                "key": "variable_spend",
+                "title": "Monthly spending (estimated)",
+                "fields": [
+                    {
+                        "id": "groceries",
+                        "label": "Groceries",
+                        "type": "money",
+                        "default": 0
+                    },
+                    {
+                        "id": "household_supplies",
+                        "label": "Household supplies",
+                        "type": "money",
+                        "default": 0
+                    },
+                    {
+                        "id": "kids",
+                        "label": "Kids (clothes, school, activities)",
+                        "type": "money",
+                        "default": 0
+                    },
+                    {
+                        "id": "eating_out",
+                        "label": "Eating out / takeaway",
+                        "type": "money",
+                        "default": 0
+                    },
+                    {
+                        "id": "subscriptions",
+                        "label": "Subscriptions",
+                        "type": "money",
+                        "default": 0
+                    },
+                    {
+                        "id": "health_beauty",
+                        "label": "Health & beauty",
+                        "type": "money",
+                        "default": 0
+                    },
+                    {
+                        "id": "fun_misc",
+                        "label": "Fun & misc",
+                        "type": "money",
+                        "default": 0
+                    }
+                ]
+            },
+            {
+                "key": "goals",
+                "title": "Goals",
+                "fields": [
+                    {
+                        "id": "emergency_fund_target_months",
+                        "label": "Emergency fund target (months)",
+                        "type": "number",
+                        "default": 3,
+                        "min": 0,
+                        "max": 12
+                    },
+                    {
+                        "id": "monthly_saving_goal",
+                        "label": "Monthly saving goal",
+                        "type": "money",
+                        "default": 0
+                    },
+                    {
+                        "id": "monthly_investing_goal",
+                        "label": "Monthly investing goal",
+                        "type": "money",
+                        "default": 0
+                    },
+                    {
+                        "id": "priority_goal",
+                        "label": "Top priority",
+                        "type": "enum",
+                        "values": [
+                            "stability",
+                            "debt_freedom",
+                            "investing",
+                            "family_future",
+                            "reduce_stress"
+                        ],
+                        "default": "stability"
+                    }
+                ]
+            },
+            {
+                "key": "investing_profile",
+                "title": "Investing profile (simple)",
+                "fields": [
+                    {
+                        "id": "risk_comfort",
+                        "label": "Risk comfort",
+                        "type": "enum",
+                        "values": [
+                            "low",
+                            "medium",
+                            "high"
+                        ],
+                        "default": "low"
+                    },
+                    {
+                        "id": "time_horizon_years",
+                        "label": "Time horizon (years)",
+                        "type": "number",
+                        "default": 10,
+                        "min": 1,
+                        "max": 40
+                    },
+                    {
+                        "id": "knowledge_level",
+                        "label": "Knowledge level",
+                        "type": "enum",
+                        "values": [
+                            "new",
+                            "some",
+                            "confident"
+                        ],
+                        "default": "new"
+                    }
+                ]
+            }
+        ]
+    },
+    "interaction_types": {
+        "input_cards": [
+            {
+                "type": "money_input",
+                "validation": ">=0",
+                "save_behavior": "auto_save"
+            },
+            {
+                "type": "number_input",
+                "validation": "range",
+                "save_behavior": "auto_save"
+            },
+            {
+                "type": "multi_choice",
+                "save_behavior": "auto_save"
+            },
+            {
+                "type": "slider",
+                "save_behavior": "auto_save"
+            }
+        ],
+        "tasks": [
+            {
+                "type": "quick_calc",
+                "description": "User enters values; app calculates and explains result."
+            },
+            {
+                "type": "comparison_picker",
+                "description": "Choose which option is better value; show reasoning."
+            },
+            {
+                "type": "scenario_choice",
+                "description": "Pick best action in a realistic scenario."
+            },
+            {
+                "type": "habit_challenge",
+                "description": "Small action to try today; check-in tomorrow."
+            },
+            {
+                "type": "mini_plan_builder",
+                "description": "Build a simple plan (e.g., budget or investing rule) from inputs."
+            }
+        ],
+        "quiz": {
+            "question_count": {
+                "min": 3,
+                "max": 5
+            },
+            "passing_score_percent": 60,
+            "feedback_style": "gentle_explanations",
+            "retry_allowed": true,
+            "show_correct_answers_after": "attempt"
+        }
+    },
+    "progress_system": {
+        "xp": {
+            "enabled": true,
+            "per_lesson_complete": 10,
+            "per_quiz_pass": 10,
+            "per_task_complete": 5
+        },
+        "streaks": {
+            "enabled": true,
+            "streak_unit": "day",
+            "grace_days_per_month": 2
+        },
+        "badges": [
+            {
+                "id": "first_step",
+                "name": "First Step",
+                "unlock": "complete_first_lesson"
+            },
+            {
+                "id": "budget_builder",
+                "name": "Budget Builder",
+                "unlock": "complete_beginner_budget_module"
+            },
+            {
+                "id": "value_detective",
+                "name": "Value Detective",
+                "unlock": "complete_unit_price_lesson"
+            },
+            {
+                "id": "investing_starter",
+                "name": "Investing Starter",
+                "unlock": "complete_first_investing_lesson"
+            },
+            {
+                "id": "calm_consistency",
+                "name": "Calm Consistency",
+                "unlock": "7_day_streak"
+            }
+        ]
+    },
+    "main_lesson_screen_requirements": {
+        "top_area": {
+            "shows": [
+                "lesson_title",
+                "estimated_time",
+                "progress_in_level",
+                "calm_support_message"
+            ],
+            "hides": [
+                "total_saved_big_number"
+            ]
+        },
+        "persistent_edit_panel": {
+            "name": "My numbers (editable)",
+            "description": "Quick edit your income, spending, and goals without leaving the lesson.",
+            "sections_visible": [
+                "income",
+                "fixed_costs",
+                "variable_spend",
+                "goals",
+                "investing_profile"
+            ],
+            "controls": [
+                "edit",
+                "save",
+                "undo",
+                "reset_optional"
+            ]
+        },
+        "lesson_flow": {
+            "order": [
+                "concept",
+                "example",
+                "task",
+                "summary",
+                "quiz"
+            ],
+            "completion_rules": {
+                "task_required": true,
+                "quiz_required": true,
+                "quiz_pass_or_retry": true
+            }
+        }
+    },
+    "content_localization_notes": {
+        "unit_prices": "Support kg/l and g/ml conversions automatically.",
+        "currency": "All money inputs and outputs use user currency.",
+        "examples": "Use country-specific grocery and account examples if localization is enabled."
+    },
+    "future_extensions": {
+        "weekly_review": "Auto-generated gentle review based on inputs (spend categories + habit wins).",
+        "family_goals": "Add kids-specific goals like school supplies, activities, future fund.",
+        "partner_mode": "Optional shared household planning with another adult."
+    }
+}
