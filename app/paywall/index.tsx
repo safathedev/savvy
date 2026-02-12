@@ -68,31 +68,31 @@ export default function PaywallScreen() {
     try {
       // In dummy mode, create mock packages
       if (DUMMY_MODE) {
-        // Order and identifiers must match RevenueCat: lifetime, yearly, monthly
+        // Order and identifiers must match RevenueCat
         const mockPackages: any[] = [
           {
-            identifier: "lifetime",
+            identifier: "savvy_lifetime",
             packageType: "LIFETIME",
             product: {
-              identifier: "lifetime",
+              identifier: "savvy_lifetime",
               priceString: PRODUCTS.LIFETIME.price,
               description: PRODUCTS.LIFETIME.description,
             },
           },
           {
-            identifier: "yearly",
+            identifier: "savvy_annual:p1y",
             packageType: "ANNUAL",
             product: {
-              identifier: "yearly",
+              identifier: "savvy_annual:p1y",
               priceString: PRODUCTS.ANNUAL.price,
               description: PRODUCTS.ANNUAL.description,
             },
           },
           {
-            identifier: "monthly",
+            identifier: "savvy_monthly:p1m",
             packageType: "MONTHLY",
             product: {
-              identifier: "monthly",
+              identifier: "savvy_monthly:p1m",
               priceString: PRODUCTS.MONTHLY.price,
               description: PRODUCTS.MONTHLY.description,
             },
@@ -109,7 +109,7 @@ export default function PaywallScreen() {
           
           // Auto-select lifetime package if available, else first package
           const lifetimePackage = availablePackages.find(
-            (pkg: any) => pkg.identifier === "lifetime" || pkg.packageType === "LIFETIME"
+            (pkg: any) => pkg.identifier === "savvy_lifetime" || pkg.packageType === "LIFETIME"
           );
           setSelectedPackage(lifetimePackage ?? availablePackages[0] ?? null);
         }
@@ -186,13 +186,13 @@ export default function PaywallScreen() {
 
   // Get package display name
   const getPackageName = (pkg: PurchasesPackage): string => {
-    if (pkg.identifier === "monthly" || pkg.packageType === "MONTHLY") {
+    if (pkg.identifier === "savvy_monthly:p1m" || pkg.packageType === "MONTHLY") {
       return "Monthly";
     }
-    if (pkg.identifier === "yearly" || pkg.packageType === "ANNUAL") {
+    if (pkg.identifier === "savvy_annual:p1y" || pkg.packageType === "ANNUAL") {
       return "Annual";
     }
-    if (pkg.identifier === "lifetime" || pkg.packageType === "LIFETIME") {
+    if (pkg.identifier === "savvy_lifetime" || pkg.packageType === "LIFETIME") {
       return "Lifetime";
     }
     return pkg.identifier;
@@ -200,13 +200,13 @@ export default function PaywallScreen() {
 
   // Get package description
   const getPackageDescription = (pkg: PurchasesPackage): string => {
-    if (pkg.identifier === "monthly" || pkg.packageType === "MONTHLY") {
+    if (pkg.identifier === "savvy_monthly:p1m" || pkg.packageType === "MONTHLY") {
       return "Renews every month";
     }
-    if (pkg.identifier === "yearly" || pkg.packageType === "ANNUAL") {
+    if (pkg.identifier === "savvy_annual:p1y" || pkg.packageType === "ANNUAL") {
       return "Renews every year";
     }
-    if (pkg.identifier === "lifetime" || pkg.packageType === "LIFETIME") {
+    if (pkg.identifier === "savvy_lifetime" || pkg.packageType === "LIFETIME") {
       return "Pay once, own forever";
     }
     return pkg.product.description || "Premium access";

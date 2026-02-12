@@ -26,22 +26,22 @@ export type PurchasesOfferings = any;
 export type PurchasesPackage = any;
 export type CustomerInfo = any;
 
-// Product identifiers - must match RevenueCat dashboard exactly: lifetime, yearly, monthly
+// Product identifiers - must match RevenueCat dashboard exactly
 export const PRODUCTS = {
   LIFETIME: {
-    id: "lifetime",
+    id: "savvy_lifetime",
     price: "$35.99",
     period: "lifetime",
     description: "One-time payment, unlimited access forever",
   },
   ANNUAL: {
-    id: "yearly",
+    id: "savvy_annual:p1y",
     price: "$24.99",
     period: "year",
     description: "Renews annually",
   },
   MONTHLY: {
-    id: "monthly",
+    id: "savvy_monthly:p1m",
     price: "$4.99",
     period: "month",
     description: "Renews monthly",
