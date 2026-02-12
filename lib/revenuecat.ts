@@ -26,19 +26,25 @@ export type PurchasesOfferings = any;
 export type PurchasesPackage = any;
 export type CustomerInfo = any;
 
-// Product identifiers - must match RevenueCat dashboard
+// Product identifiers - must match RevenueCat dashboard exactly: lifetime, yearly, monthly
 export const PRODUCTS = {
   LIFETIME: {
     id: "lifetime",
-    price: "$10",
+    price: "$35.99",
     period: "lifetime",
     description: "One-time payment, unlimited access forever",
   },
   ANNUAL: {
     id: "yearly",
-    price: "$5",
+    price: "$24.99",
     period: "year",
     description: "Renews annually",
+  },
+  MONTHLY: {
+    id: "monthly",
+    price: "$4.99",
+    period: "month",
+    description: "Renews monthly",
   },
 } as const;
 

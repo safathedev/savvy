@@ -68,6 +68,7 @@ export default function PaywallScreen() {
     try {
       // In dummy mode, create mock packages
       if (DUMMY_MODE) {
+        // Order and identifiers must match RevenueCat: lifetime, yearly, monthly
         const mockPackages: any[] = [
           {
             identifier: "lifetime",
@@ -87,6 +88,15 @@ export default function PaywallScreen() {
               description: PRODUCTS.ANNUAL.description,
             },
           },
+          {
+            identifier: "monthly",
+            packageType: "MONTHLY",
+            product: {
+              identifier: "monthly",
+              priceString: PRODUCTS.MONTHLY.price,
+              description: PRODUCTS.MONTHLY.description,
+            },
+          },
         ];
         setPackages(mockPackages);
         setSelectedPackage(mockPackages[0]);
@@ -97,11 +107,11 @@ export default function PaywallScreen() {
           const availablePackages = offerings.current.availablePackages;
           setPackages(availablePackages);
           
-          // Auto-select lifetime package if available
+          // Auto-select lifetime package if available, else first package
           const lifetimePackage = availablePackages.find(
             (pkg: any) => pkg.identifier === "lifetime" || pkg.packageType === "LIFETIME"
           );
-          setSelectedPackage(lifetimePackage || availablePackages[0] || null);
+          setSelectedPackage(lifetimePackage ?? availablePackages[0] ?? null);
         }
       }
     } catch (error) {
@@ -176,22 +186,28 @@ export default function PaywallScreen() {
 
   // Get package display name
   const getPackageName = (pkg: PurchasesPackage): string => {
-    if (pkg.identifier === "lifetime" || pkg.packageType === "LIFETIME") {
-      return "Lifetime";
+    if (pkg.identifier === "monthly" || pkg.packageType === "MONTHLY") {
+      return "Monthly";
     }
     if (pkg.identifier === "yearly" || pkg.packageType === "ANNUAL") {
       return "Annual";
+    }
+    if (pkg.identifier === "lifetime" || pkg.packageType === "LIFETIME") {
+      return "Lifetime";
     }
     return pkg.identifier;
   };
 
   // Get package description
   const getPackageDescription = (pkg: PurchasesPackage): string => {
-    if (pkg.identifier === "lifetime" || pkg.packageType === "LIFETIME") {
-      return "Pay once, own forever";
+    if (pkg.identifier === "monthly" || pkg.packageType === "MONTHLY") {
+      return "Renews every month";
     }
     if (pkg.identifier === "yearly" || pkg.packageType === "ANNUAL") {
       return "Renews every year";
+    }
+    if (pkg.identifier === "lifetime" || pkg.packageType === "LIFETIME") {
+      return "Pay once, own forever";
     }
     return pkg.product.description || "Premium access";
   };
@@ -267,6 +283,7 @@ export default function PaywallScreen() {
                       <Text style={s.planTitle}>{getPackageName(pkg)}</Text>
                       <Text style={s.planPrice}>
                         {formatPrice(pkg)}
+                        {pkg.packageType === "MONTHLY" && <Text style={s.planPeriod}> / month</Text>}
                         {pkg.packageType === "ANNUAL" && <Text style={s.planPeriod}> / year</Text>}
                       </Text>
                       <Text style={s.planMeta}>{getPackageDescription(pkg)}</Text>
@@ -323,7 +340,7 @@ export default function PaywallScreen() {
         </Pressable>
 
         <Text style={s.disclaimer}>
-          Cancel anytime. Auto-renewable for annual plans. Payment processed securely through the App Store.
+          Cancel anytime. Auto-renewable for monthly and annual plans. Payment processed securely through the App Store.
         </Text>
         <Text style={s.disclaimerLinks}>
           By purchasing, you agree to our Terms of Service and Privacy Policy.
