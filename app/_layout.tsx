@@ -1,15 +1,16 @@
 import { hatchColors } from "@/constants/theme";
 import "@/global.css";
-import { AppProvider } from "@/lib/app-context";
-import { initializePurchases } from "@/lib/revenuecat";
+import { AppProvider, useApp } from "@/lib/app-context";
+import { initializePurchases, checkSubscriptionStatus } from "@/lib/revenuecat";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { DefaultTheme, ThemeProvider } from "@react-navigation/native";
 import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { AppState } from "react-native";
 import "react-native-reanimated";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
@@ -55,9 +56,16 @@ export default function RootLayout() {
   }, [loaded, error]);
 
   useEffect(() => {
-    initializePurchases().catch(() => {
-      // Keep app usable in dummy mode even if SDK init fails.
-    });
+    // Initialize RevenueCat and sync premium status
+    const initRevenueCat = async () => {
+      try {
+        await initializePurchases();
+      } catch (error) {
+        console.warn("RevenueCat initialization failed, using dummy mode");
+      }
+    };
+    
+    initRevenueCat();
   }, []);
 
   if (!loaded && !error) {
@@ -68,6 +76,7 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: hatchColors.background.primary }}>
       <SafeAreaProvider>
         <AppProvider>
+          <RevenueCatSync />
           <ThemeProvider value={SavvyTheme}>
             <StatusBar style="dark" />
             <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: hatchColors.background.primary } }}>
@@ -83,4 +92,43 @@ export default function RootLayout() {
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
+}
+
+// Component to sync premium status with RevenueCat on app start and foreground
+function RevenueCatSync() {
+  const { setPremium } = useApp();
+  const appState = useRef(AppState.currentState);
+
+  const syncPremiumStatus = async () => {
+    try {
+      const hasPremium = await checkSubscriptionStatus();
+      await setPremium(hasPremium);
+      console.log("Premium status synced from RevenueCat:", hasPremium);
+    } catch (error) {
+      console.warn("Failed to sync premium status:", error);
+    }
+  };
+
+  useEffect(() => {
+    // Sync on mount
+    syncPremiumStatus();
+
+    // Sync when app comes to foreground
+    const subscription = AppState.addEventListener("change", (nextAppState) => {
+      if (
+        appState.current.match(/inactive|background/) &&
+        nextAppState === "active"
+      ) {
+        // App has come to the foreground - sync premium status
+        syncPremiumStatus();
+      }
+      appState.current = nextAppState;
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [setPremium]);
+
+  return null;
 }
