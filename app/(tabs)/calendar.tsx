@@ -12,6 +12,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   DimensionValue,
   KeyboardAvoidingView,
   Modal,
@@ -141,6 +142,86 @@ function getColorLight(hex: string): string {
     .padStart(2, "0")}`;
 }
 
+type TimedEventLayout = {
+  event: any;
+  startTime: string;
+  endTime: string;
+  start: number;
+  end: number;
+  top: number;
+  height: number;
+  column: number;
+  columns: number;
+};
+
+function buildTimedEventLayouts(events: any[]): TimedEventLayout[] {
+  const normalized = events
+    .map((event) => {
+      const startTime = isValidTime(event.time || "") ? String(event.time) : "09:00";
+      const rawEndTime = isValidTime(event.endTime || "")
+        ? String(event.endTime)
+        : addMinutes(startTime, 30);
+      const start = Math.max(0, toMinutes(startTime));
+      let end = Math.max(start + 15, toMinutes(rawEndTime));
+      if (!Number.isFinite(end) || end <= start) end = start + 30;
+      end = Math.min(24 * 60, end);
+
+      return {
+        event,
+        startTime,
+        endTime: rawEndTime,
+        start,
+        end,
+        top: start + 20,
+        height: Math.max(30, end - start),
+      };
+    })
+    .sort((a, b) => a.start - b.start || a.end - b.end);
+
+  const layouts: TimedEventLayout[] = [];
+  let active: TimedEventLayout[] = [];
+  let cluster: TimedEventLayout[] = [];
+
+  const flushCluster = () => {
+    if (cluster.length === 0) return;
+    const maxColumn = Math.max(...cluster.map((item) => item.column));
+    const clusterColumns = Math.max(1, maxColumn + 1);
+    cluster.forEach((item) => {
+      item.columns = clusterColumns;
+    });
+    cluster = [];
+    active = [];
+  };
+
+  normalized.forEach((entry) => {
+    active = active.filter((item) => item.end > entry.start);
+
+    if (active.length === 0 && cluster.length > 0) {
+      flushCluster();
+    }
+
+    const usedColumns = new Set(active.map((item) => item.column));
+    let column = 0;
+    while (usedColumns.has(column)) {
+      column += 1;
+    }
+
+    const next: TimedEventLayout = {
+      ...entry,
+      column,
+      columns: 1,
+    };
+
+    active.push(next);
+    cluster.push(next);
+    layouts.push(next);
+  });
+
+  flushCluster();
+
+  return layouts.sort((a, b) => a.start - b.start || a.column - b.column);
+}
+
 export default function CalendarScreen() {
   const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
@@ -151,7 +232,9 @@ export default function CalendarScreen() {
     updateCalendarEvent,
     customCalendarCategories,
     addCustomCalendarCategory,
+    userProfile,
   } = useApp();
+  const currencyCode = userProfile?.currency || "GBP";
 
   const [viewMode, setViewMode] = useState<"compact" | "month">("compact");
   const [timelineMode, setTimelineMode] = useState<"day" | "3day" | "week">("day");
@@ -358,8 +441,37 @@ export default function CalendarScreen() {
     [calendarEvents]
   );
 
+  const calendarCellEvents = useMemo(() => {
+    const byDate = new Map<string, any[]>();
+    calendarData.forEach((d) => {
+      byDate.set(`${d.year}-${d.month}-${d.day}`, getDayEvents(d.day, d.month, d.year));
+    });
+    return byDate;
+  }, [calendarData, getDayEvents]);
+
+  const timelineDayColumns = useMemo(
+    () =>
+      timelineDays.map((date) => {
+        const dayEvents = getDayEvents(date.getDate(), date.getMonth(), date.getFullYear());
+        const allDayEvents = dayEvents.filter((event) => Boolean(event.allDay));
+        const timedEvents = dayEvents.filter((event) => !event.allDay);
+        return {
+          date,
+          allDayEvents,
+          timedLayouts: buildTimedEventLayouts(timedEvents),
+        };
+      }),
+    [getDayEvents, timelineDays]
+  );
+
+  const selectedDateEvents = useMemo(
+    () => getDayEvents(selectedDate.getDate(), selectedDate.getMonth(), selectedDate.getFullYear()),
+    [getDayEvents, selectedDate]
+  );
+
   const openNewModal = (presetStart?: string) => {
     const start = presetStart && isValidTime(presetStart) ? presetStart : defaultStartTime();
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setEditingEvent(null);
     setEventTitle("");
     setEventStart(start);
@@ -375,6 +487,7 @@ export default function CalendarScreen() {
   };
 
   const handleEditEvent = (event: any) => {
+    Haptics.selectionAsync();
     const eventIsAllDay =
       Boolean(event.allDay) ||
       (!isValidTime(event.time || "") && !isValidTime(event.endTime || ""));
@@ -401,6 +514,7 @@ export default function CalendarScreen() {
   };
 
   const openTimePicker = (target: PickerTarget) => {
+    Haptics.selectionAsync();
     setTimePickerTarget(target);
     setTimePickerValue(timeToDate(target === "start" ? eventStart : eventEnd));
     setTimePickerVisible(true);
@@ -444,6 +558,7 @@ export default function CalendarScreen() {
   };
 
   const openCategoryModal = () => {
+    Haptics.selectionAsync();
     setNewCategoryName("");
     setNewCategoryColor(CATEGORY_COLOR_PRESETS[0]);
     setNewCategoryColorInput(CATEGORY_COLOR_PRESETS[0].replace("#", "").toUpperCase());
@@ -454,6 +569,7 @@ export default function CalendarScreen() {
     const label = newCategoryName.trim();
     if (!label) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Alert.alert("Name required", "Please enter a category name.");
       return;
     }
 
@@ -467,6 +583,10 @@ export default function CalendarScreen() {
 
     if (!created) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Alert.alert(
+        "Category unavailable",
+        "This category already exists or uses an invalid name/color."
+      );
       return;
     }
 
@@ -479,16 +599,41 @@ export default function CalendarScreen() {
   };
 
   const saveEvent = async () => {
-    if (!eventTitle.trim()) return;
-    if (!isAllDay) {
-      if (!isValidTime(eventStart) || !isValidTime(eventEnd)) return;
-      if (toMinutes(eventEnd) <= toMinutes(eventStart)) return;
+    if (!eventTitle.trim()) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Alert.alert("Title required", "Please add a title for this event.");
+      return;
     }
 
-    const rawAmount = Number(eventAmount.replace(",", "."));
+    if (!isAllDay) {
+      if (!isValidTime(eventStart) || !isValidTime(eventEnd)) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        Alert.alert("Invalid time", "Please use valid 24-hour times (HH:MM).");
+        return;
+      }
+      if (toMinutes(eventEnd) <= toMinutes(eventStart)) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        Alert.alert("Invalid range", "End time must be later than start time.");
+        return;
+      }
+    }
+
+    const amountInput = eventAmount.trim();
+    const rawAmount = Number(amountInput.replace(",", "."));
+    if (isCostEnabled && amountInput && !Number.isFinite(rawAmount)) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Alert.alert("Invalid amount", "Please enter a valid planned amount.");
+      return;
+    }
+
     const amount = Number.isFinite(rawAmount)
       ? Math.max(0, Math.min(MAX_AMOUNT, rawAmount))
       : 0;
+    if (isCostEnabled && amount <= 0) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Alert.alert("Amount required", "Track cost is enabled. Enter an amount greater than 0.");
+      return;
+    }
 
     const categoryConfig = getCategoryConfig(eventCategory);
 
@@ -512,35 +657,67 @@ export default function CalendarScreen() {
     setIsModalVisible(false);
   };
 
-  const selectedDateEvents = getDayEvents(
-    selectedDate.getDate(),
-    selectedDate.getMonth(),
-    selectedDate.getFullYear()
-  );
+  const confirmDeleteEvent = (event: any) => {
+    Alert.alert("Delete event?", "This action cannot be undone.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          await deleteCalendarEvent(event.id);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          setIsModalVisible(false);
+        },
+      },
+    ]);
+  };
 
   const headerDate = viewMode === "month" ? viewDate : selectedDate;
 
   return (
     <View style={s.root}>
       <View style={[s.topSafe, { paddingTop: insets.top + 8 }]}> 
-        <View style={s.headerRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={s.headerTitle}>Calendar</Text>
-            <Pressable onPress={() => setViewMode((value) => (value === "compact" ? "month" : "compact"))}>
+          <View style={s.headerRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={s.headerTitle}>Calendar</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={viewMode === "compact" ? "Open month view" : "Close month view"}
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  setViewMode((value) => (value === "compact" ? "month" : "compact"));
+                }}
+              >
               <Text style={s.headerSubtitle}>
                 {headerDate.toLocaleDateString("default", { month: "long", year: "numeric" })}
                 <Ionicons name={viewMode === "compact" ? "chevron-down" : "chevron-up"} size={12} color={hatchColors.primary.default} />
               </Text>
-            </Pressable>
-          </View>
+              </Pressable>
+            </View>
 
           <View style={s.toggleContainer}>
-            <Pressable onPress={() => setDisplayMode("grid")} style={[s.toggleBtn, displayMode === "grid" && s.toggleBtnActive]}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Switch to calendar timeline view"
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  setDisplayMode("grid");
+                }}
+                style={[s.toggleBtn, displayMode === "grid" && s.toggleBtnActive]}
+              >
               <Ionicons name="calendar" size={16} color={displayMode === "grid" ? hatchColors.primary.default : hatchColors.text.tertiary} />
-            </Pressable>
-            <Pressable onPress={() => setDisplayMode("agenda")} style={[s.toggleBtn, displayMode === "agenda" && s.toggleBtnActive]}>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Switch to agenda list view"
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  setDisplayMode("agenda");
+                }}
+                style={[s.toggleBtn, displayMode === "agenda" && s.toggleBtnActive]}
+              >
               <Ionicons name="list" size={16} color={displayMode === "agenda" ? hatchColors.primary.default : hatchColors.text.tertiary} />
-            </Pressable>
+              </Pressable>
           </View>
         </View>
 
@@ -563,7 +740,8 @@ export default function CalendarScreen() {
                 d.month === selectedDate.getMonth() &&
                 d.year === selectedDate.getFullYear();
 
-              const dayEvents = getDayEvents(d.day, d.month, d.year);
+              const dayEvents =
+                calendarCellEvents.get(`${d.year}-${d.month}-${d.day}`) ?? [];
               const hasEvents = dayEvents.length > 0;
 
               return (
@@ -571,6 +749,7 @@ export default function CalendarScreen() {
                   key={`${d.year}-${d.month}-${d.day}-${index}`}
                   style={s.dayCell}
                   onPress={() => {
+                    Haptics.selectionAsync();
                     const nextDate = new Date(d.year, d.month, d.day);
                     setSelectedDate(nextDate);
                     if (viewMode === "month") {
@@ -605,13 +784,21 @@ export default function CalendarScreen() {
           selectedDate={selectedDate}
           onEditEvent={handleEditEvent}
           resolveCategory={getCategoryConfig}
+          currencyCode={currencyCode}
         />
       ) : (
         <View style={{ flex: 1 }}>
           <View style={s.subHeader}>
             <View style={s.modeSwitcherInline}>
               {(["day", "3day", "week"] as const).map((mode) => (
-                <Pressable key={mode} onPress={() => setTimelineMode(mode)} style={[s.modeBtnInline, timelineMode === mode && s.modeBtnActive]}>
+                <Pressable
+                  key={mode}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setTimelineMode(mode);
+                  }}
+                  style={[s.modeBtnInline, timelineMode === mode && s.modeBtnActive]}
+                >
                   <Text style={[s.modeBtnText, timelineMode === mode && s.modeBtnTextActive]}>{mode.toUpperCase()}</Text>
                 </Pressable>
               ))}
@@ -640,12 +827,10 @@ export default function CalendarScreen() {
                 nestedScrollEnabled
               >
                 <View style={s.scheduleWrapper}>
-                  {timelineDays.map((date, dayIdx) => {
+                  {timelineDayColumns.map(({ date, allDayEvents, timedLayouts }, dayIdx) => {
                     const nowLineTop = currentTime.getHours() * 60 + currentTime.getMinutes() + 20;
-                    const dayEvents = getDayEvents(date.getDate(), date.getMonth(), date.getFullYear());
-                    const allDayEvents = dayEvents.filter((event) => Boolean(event.allDay));
-                    const timedEvents = dayEvents.filter((event) => !event.allDay);
                     const isCurrentDay = isSameDate(date, today);
+                    const columnWidth = timelineMode === "day" ? dayColumnWidth : timelineMode === "3day" ? 120 : 80;
 
                     return (
                       <View
@@ -653,7 +838,7 @@ export default function CalendarScreen() {
                         style={[
                           s.scheduleCol,
                           {
-                            width: timelineMode === "day" ? dayColumnWidth : timelineMode === "3day" ? 120 : 80,
+                            width: columnWidth,
                           },
                         ]}
                       >
@@ -673,6 +858,8 @@ export default function CalendarScreen() {
                                 s.timelineAllDayEvent,
                                 {
                                   top: (4 + allDayIndex * 30) as DimensionValue,
+                                  left: 4,
+                                  right: 4,
                                   backgroundColor: category.colorLight,
                                   borderLeftColor: category.color,
                                 },
@@ -693,42 +880,34 @@ export default function CalendarScreen() {
                           </View>
                         )}
 
-                        {timedEvents.map((event, eventIndex) => {
-                          const startTime = isValidTime(event.time || "") ? String(event.time) : "09:00";
-                          const endTime = isValidTime(event.endTime || "")
-                            ? String(event.endTime)
-                            : addMinutes(startTime, 30);
-                          const [h, m] = startTime.split(":").map(Number);
-                          const [eh, em] = endTime.split(":").map(Number);
-                          const top = h * 60 + m + 20;
-                          const duration = eh * 60 + em - (h * 60 + m);
-                          const height = Math.max(30, duration);
-                          const overlaps = timedEvents.filter((candidate) => candidate.time === event.time);
-                          const overlapIndex = overlaps.findIndex((candidate) => candidate.id === event.id);
-                          const leftOffset = timelineMode === "day" ? 0 : overlapIndex * 12;
-                          const widthOffset = timelineMode === "day" ? 0 : overlapIndex * 12;
-                          const category = getCategoryConfig(event.type, event.color);
+                        {timedLayouts.map((layout, eventIndex) => {
+                          const columns = Math.max(1, layout.columns);
+                          const gap = columns > 1 ? 4 : 0;
+                          const innerWidth = Math.max(40, columnWidth - 8);
+                          const eventWidth = Math.max(18, (innerWidth - gap * (columns - 1)) / columns);
+                          const left = 4 + layout.column * (eventWidth + gap);
+                          const category = getCategoryConfig(layout.event.type, layout.event.color);
 
                           return (
                             <Pressable
-                              key={`${event.id}-${eventIndex}`}
-                              onPress={() => handleEditEvent(event)}
+                              key={`${layout.event.id}-${eventIndex}`}
+                              onPress={() => handleEditEvent(layout.event)}
                               style={[
                                 s.timelineEvent,
                                 {
-                                  top: top as DimensionValue,
-                                  height: height as DimensionValue,
-                                  left: (4 + leftOffset) as DimensionValue,
-                                  right: (4 + widthOffset) as DimensionValue,
+                                  top: layout.top as DimensionValue,
+                                  height: layout.height as DimensionValue,
+                                  left: left as DimensionValue,
+                                  width: eventWidth as DimensionValue,
                                   backgroundColor: category.colorLight,
                                   borderLeftColor: category.color,
                                 },
                               ]}
                             >
-                              <Text style={[s.eventTitleLabel, { color: category.color }]} numberOfLines={1}>{event.title}</Text>
-                              {height > 40 && (
+                              <Text style={[s.eventTitleLabel, { color: category.color }]} numberOfLines={1}>{layout.event.title}</Text>
+                              {layout.height > 40 && (
                                 <Text style={[s.eventTimeLabel, { color: category.color }]}>
-                                  {startTime} - {endTime}
+                                  {layout.startTime} - {layout.endTime}
                                 </Text>
                               )}
                             </Pressable>
@@ -744,7 +923,12 @@ export default function CalendarScreen() {
         </View>
       )}
 
-      <Pressable onPress={() => openNewModal()} style={s.fab}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Add calendar event"
+        onPress={() => openNewModal()}
+        style={s.fab}
+      >
         <Ionicons name="add" size={32} color="#FFFFFF" />
       </Pressable>
 
@@ -758,7 +942,12 @@ export default function CalendarScreen() {
         />
       )}
 
-      <Modal visible={Platform.OS === "ios" && timePickerVisible} transparent animationType="fade">
+      <Modal
+        visible={Platform.OS === "ios" && timePickerVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setTimePickerVisible(false)}
+      >
         <View style={s.modalOverlay}>
           <View style={s.timePickerCard}>
             <Text style={s.timePickerTitle}>{timePickerTarget === "start" ? "Choose start time" : "Choose end time"}</Text>
@@ -789,12 +978,22 @@ export default function CalendarScreen() {
         </View>
       </Modal>
 
-      <Modal visible={isModalVisible} transparent animationType="fade">
+      <Modal
+        visible={isModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsModalVisible(false)}
+      >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={s.modalOverlay}>
           <View style={s.modalContent}>
             <View style={s.modalHeader}>
               <Text style={s.modalTitle}>{editingEvent ? "Edit event" : "New event"}</Text>
-              <Pressable onPress={() => setIsModalVisible(false)}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close event editor"
+                style={s.modalCloseBtn}
+                onPress={() => setIsModalVisible(false)}
+              >
                 <Ionicons name="close-circle" size={28} color={hatchColors.text.tertiary} />
               </Pressable>
             </View>
@@ -808,7 +1007,10 @@ export default function CalendarScreen() {
                 <Text style={s.toggleLabel}>All day</Text>
                 <Switch
                   value={isAllDay}
-                  onValueChange={setIsAllDay}
+                  onValueChange={(value) => {
+                    Haptics.selectionAsync();
+                    setIsAllDay(value);
+                  }}
                   trackColor={{ false: hatchColors.border.default, true: hatchColors.primary.default }}
                   thumbColor="#FFFFFF"
                 />
@@ -827,7 +1029,12 @@ export default function CalendarScreen() {
                         placeholder="18:30"
                         maxLength={5}
                       />
-                      <Pressable style={s.timePickerBtn} onPress={() => openTimePicker("start")}>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Pick start time"
+                        style={s.timePickerBtn}
+                        onPress={() => openTimePicker("start")}
+                      >
                         <Ionicons name="time-outline" size={18} color={hatchColors.primary.default} />
                       </Pressable>
                     </View>
@@ -843,7 +1050,12 @@ export default function CalendarScreen() {
                         placeholder="19:00"
                         maxLength={5}
                       />
-                      <Pressable style={s.timePickerBtn} onPress={() => openTimePicker("end")}>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Pick end time"
+                        style={s.timePickerBtn}
+                        onPress={() => openTimePicker("end")}
+                      >
                         <Ionicons name="time-outline" size={18} color={hatchColors.primary.default} />
                       </Pressable>
                     </View>
@@ -857,7 +1069,15 @@ export default function CalendarScreen() {
 
               <View style={s.toggleRow}>
                 <Text style={s.toggleLabel}>Track cost</Text>
-                <Switch value={isCostEnabled} onValueChange={setIsCostEnabled} trackColor={{ false: hatchColors.border.default, true: hatchColors.primary.default }} thumbColor="#FFFFFF" />
+                <Switch
+                  value={isCostEnabled}
+                  onValueChange={(value) => {
+                    Haptics.selectionAsync();
+                    setIsCostEnabled(value);
+                  }}
+                  trackColor={{ false: hatchColors.border.default, true: hatchColors.primary.default }}
+                  thumbColor="#FFFFFF"
+                />
               </View>
 
               {isCostEnabled && (
@@ -916,7 +1136,7 @@ export default function CalendarScreen() {
 
               <Pressable onPress={saveEvent} style={s.saveBtn}><Text style={s.saveBtnText}>{editingEvent ? "Update event" : "Save event"}</Text></Pressable>
               {editingEvent && (
-                <Pressable onPress={() => { deleteCalendarEvent(editingEvent.id); setIsModalVisible(false); }} style={s.deleteBtn}>
+                <Pressable onPress={() => confirmDeleteEvent(editingEvent)} style={s.deleteBtn}>
                   <Text style={s.deleteBtnText}>Delete event</Text>
                 </Pressable>
               )}
@@ -925,12 +1145,22 @@ export default function CalendarScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      <Modal visible={categoryModalVisible} transparent animationType="fade">
+      <Modal
+        visible={categoryModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCategoryModalVisible(false)}
+      >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={s.modalOverlay}>
           <View style={s.categoryModalCard}>
             <View style={s.modalHeader}>
               <Text style={s.modalTitle}>New category</Text>
-              <Pressable onPress={() => setCategoryModalVisible(false)}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close category editor"
+                style={s.modalCloseBtn}
+                onPress={() => setCategoryModalVisible(false)}
+              >
                 <Ionicons name="close" size={22} color={hatchColors.text.secondary} />
               </Pressable>
             </View>
@@ -1040,7 +1270,7 @@ const s = StyleSheet.create({
   scheduleWrapper: { flexDirection: "row" },
   scheduleCol: { position: "relative", borderRightWidth: 1, borderRightColor: hatchColors.border.light },
   hourRow: { height: 60, borderBottomWidth: 1, borderBottomColor: hatchColors.border.light, width: "100%", opacity: 0.5 },
-  timelineEvent: { position: "absolute", left: 4, right: 4, borderRadius: 8, padding: 6, paddingLeft: 8, borderLeftWidth: 4, overflow: "hidden", justifyContent: "center", shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 1 },
+  timelineEvent: { position: "absolute", borderRadius: 8, padding: 6, paddingLeft: 8, borderLeftWidth: 4, overflow: "hidden", justifyContent: "center", shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 1 },
   timelineAllDayEvent: {
     height: 26,
     zIndex: 11,
@@ -1057,6 +1287,7 @@ const s = StyleSheet.create({
   modalContent: { width: "100%", maxWidth: 420, maxHeight: "92%", backgroundColor: "#FFFFFF", borderRadius: 24, padding: 20, ...hatchShadows.lg },
   categoryModalCard: { width: "100%", maxWidth: 420, backgroundColor: "#FFFFFF", borderRadius: 20, padding: 16 },
   modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+  modalCloseBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   modalTitle: { fontSize: 22, fontWeight: "800", color: hatchColors.text.primary },
   inputLabel: { fontSize: 11, fontWeight: "900", color: hatchColors.text.tertiary, letterSpacing: 1, marginTop: 12, marginBottom: 8, marginLeft: 4, textTransform: "uppercase" },
   input: { backgroundColor: hatchColors.background.secondary, borderRadius: 14, padding: 14, fontSize: 16, fontWeight: "600", color: hatchColors.text.primary },

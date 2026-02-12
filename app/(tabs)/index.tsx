@@ -11,6 +11,7 @@ import {
   getCourseProgress,
   getFirstIncompleteLesson,
   getLessonLevelId,
+  isLessonPremium,
 } from "@/data/moms-investment-journey";
 import { useStreak } from "@/hooks/use-streak";
 import { useApp } from "@/lib/app-context";
@@ -55,6 +56,7 @@ export default function HomeScreen() {
   const {
     userProfile,
     completedLessons,
+    isPremium,
     savingsGoals,
     getWeeklySavings,
     getReservedExpenses,
@@ -68,6 +70,7 @@ export default function HomeScreen() {
   const courseProgress = getCourseProgress(completedLessons);
   const nextLesson = getFirstIncompleteLesson(completedLessons);
   const nextLessonLevel = nextLesson ? getLessonLevelId(nextLesson.lesson_id) : undefined;
+  const nextLessonPremiumLocked = nextLesson ? isLessonPremium(nextLesson.lesson_id) && !isPremium : false;
 
   const weeklyBalance = getWeeklySavings();
   const plannedExpenses = getReservedExpenses();
@@ -218,9 +221,11 @@ export default function HomeScreen() {
         <Animated.View entering={FadeInDown.delay(170).duration(320)}>
           <Pressable
             onPress={() =>
-              nextLesson
-                ? handleNavigate(`/lesson/${nextLesson.lesson_id}`)
-                : handleNavigate("/(tabs)/academy")
+              nextLessonPremiumLocked
+                ? handleNavigate("/paywall")
+                : nextLesson
+                  ? handleNavigate(`/lesson/${nextLesson.lesson_id}`)
+                  : handleNavigate("/(tabs)/academy")
             }
           >
             {({ pressed }) => (
@@ -232,7 +237,11 @@ export default function HomeScreen() {
                   <View style={{ flex: 1 }}>
                     <Text style={s.continueLabel}>CONTINUE LEARNING</Text>
                     <Text style={s.continueTitle} numberOfLines={2}>
-                      {nextLesson ? nextLesson.title : "All lessons completed"}
+                      {nextLessonPremiumLocked
+                        ? "Unlock intermediate and advanced lessons"
+                        : nextLesson
+                          ? nextLesson.title
+                          : "All lessons completed"}
                     </Text>
                   </View>
                   <Ionicons name="chevron-forward" size={20} color="rgba(255,255,255,0.85)" />
@@ -246,7 +255,9 @@ export default function HomeScreen() {
                   <Text style={s.continueMeta}>
                     {courseProgress.completed}/{courseProgress.total} lessons ({courseProgress.percentage}%)
                   </Text>
-                  {nextLessonLevel ? (
+                  {nextLessonPremiumLocked ? (
+                    <Text style={s.continueMeta}>PREMIUM</Text>
+                  ) : nextLessonLevel ? (
                     <Text style={s.continueMeta}>{nextLessonLevel.toUpperCase()}</Text>
                   ) : null}
                 </View>

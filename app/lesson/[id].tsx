@@ -4,6 +4,7 @@ import {
   QUIZ_PASSING_PERCENT,
   findLessonById,
   getNextLesson,
+  isLessonPremium,
   isLessonUnlocked,
 } from "@/data/moms-investment-journey";
 import { useApp } from "@/lib/app-context";
@@ -12,6 +13,7 @@ import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useMemo, useState } from "react";
 import {
+  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -177,7 +179,12 @@ function getTaskCompletionCount(
   let completed = 0;
 
   tasks.forEach((task) => {
-    if (task.type === "scenario_choice" || task.type === "comparison_picker" || task.type === "multi_choice") {
+    if (
+      task.type === "scenario_choice" ||
+      task.type === "comparison_picker" ||
+      task.type === "multi_choice" ||
+      task.type === "slider"
+    ) {
       if (taskChoices[task.task_id]) completed += 1;
       return;
     }
@@ -200,7 +207,7 @@ export default function LessonDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { completedLessons, markLessonComplete, isLessonCompleted } = useApp();
+  const { completedLessons, markLessonComplete, isLessonCompleted, isPremium } = useApp();
 
   const lesson = findLessonById(id as string);
 
@@ -229,8 +236,10 @@ export default function LessonDetailScreen() {
   }
 
   const isCompleted = isLessonCompleted(lesson.lesson_id);
-  const unlocked = isLessonUnlocked(lesson.lesson_id, completedLessons);
-  const locked = !isCompleted && !unlocked;
+  const progressionUnlocked = isLessonUnlocked(lesson.lesson_id, completedLessons);
+  const premiumLocked = isLessonPremium(lesson.lesson_id) && !isPremium;
+  const progressionLocked = !isCompleted && !progressionUnlocked;
+  const locked = premiumLocked || progressionLocked;
 
   const quizQuestions = lesson.quiz?.questions ?? [];
   const hasQuiz = quizQuestions.length > 0;
@@ -244,6 +253,9 @@ export default function LessonDetailScreen() {
     () => getTaskCompletionCount(practiceTasks, taskInputs, taskChoices),
     [practiceTasks, taskChoices, taskInputs]
   );
+  const practiceRequired = practiceTasks.length > 0;
+  const practiceComplete = completedPracticeCount >= practiceTasks.length;
+  const canTakeQuiz = !practiceRequired || practiceComplete;
 
   const score = useMemo(() => {
     if (!hasQuiz) return { correct: 0, total: 0, percent: 100 };
@@ -265,9 +277,11 @@ export default function LessonDetailScreen() {
     return { correct, total: quizQuestions.length, percent };
   }, [hasQuiz, quizAnswers, quizQuestions]);
 
-  const completionReady = isCompleted || !hasQuiz || quizPassed;
+  const completionReady =
+    isCompleted || (!hasQuiz && (!practiceRequired || practiceComplete)) || quizPassed;
 
   const handleQuizAnswer = (questionId: string, answerIndex: number) => {
+    Haptics.selectionAsync();
     setQuizAnswers((prev) => ({ ...prev, [questionId]: answerIndex }));
   };
 
@@ -288,6 +302,15 @@ export default function LessonDetailScreen() {
   };
 
   const handleSubmitQuiz = async () => {
+    if (!canTakeQuiz) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Alert.alert(
+        "Complete practice first",
+        "Finish all guided practice tasks before taking the quiz."
+      );
+      return;
+    }
+
     const passed = score.percent >= QUIZ_PASSING_PERCENT;
     setQuizPassed(passed);
     setShowQuizResult(true);
@@ -311,6 +334,14 @@ export default function LessonDetailScreen() {
   };
 
   const handleCompleteNoQuiz = async () => {
+    if (practiceRequired && !practiceComplete) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Alert.alert(
+        "Complete practice first",
+        "Finish all guided practice tasks before completing this lesson."
+      );
+      return;
+    }
     if (isCompleted || hasQuiz) return;
     await markLessonComplete(lesson.lesson_id);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -321,6 +352,10 @@ export default function LessonDetailScreen() {
     setShowCelebration(false);
 
     if (nextLesson) {
+      if (isLessonPremium(nextLesson.lesson_id) && !isPremium) {
+        router.replace("/paywall" as any);
+        return;
+      }
       router.replace(`/lesson/${nextLesson.lesson_id}` as any);
       return;
     }
@@ -331,6 +366,10 @@ export default function LessonDetailScreen() {
   const handleBottomAction = async () => {
     if (isCompleted) {
       if (nextLesson) {
+        if (isLessonPremium(nextLesson.lesson_id) && !isPremium) {
+          router.replace("/paywall" as any);
+          return;
+        }
         router.replace(`/lesson/${nextLesson.lesson_id}` as any);
       } else {
         router.replace("/(tabs)/academy" as any);
@@ -435,12 +474,22 @@ export default function LessonDetailScreen() {
     return (
       <View style={[s.root, { paddingTop: insets.top + 16 }]}>
         <View style={s.centerCard}>
-          <Ionicons name="lock-closed" size={52} color={hatchColors.text.tertiary} />
-          <Text style={s.centerTitle}>This lesson is locked</Text>
-          <Text style={s.centerText}>Complete the previous lesson first.</Text>
-          <Pressable style={s.primaryBtn} onPress={() => router.replace("/(tabs)/academy" as any)}>
-            <Text style={s.primaryBtnText}>Go to academy</Text>
-          </Pressable>
+          <Ionicons name={premiumLocked ? "diamond" : "lock-closed"} size={52} color={hatchColors.text.tertiary} />
+          <Text style={s.centerTitle}>{premiumLocked ? "Premium lesson" : "This lesson is locked"}</Text>
+          <Text style={s.centerText}>
+            {premiumLocked
+              ? "Upgrade to Premium to unlock intermediate and advanced lessons."
+              : "Complete the previous lesson first."}
+          </Text>
+          {premiumLocked ? (
+            <Pressable style={s.primaryBtn} onPress={() => router.push("/paywall")}>
+              <Text style={s.primaryBtnText}>See premium plans</Text>
+            </Pressable>
+          ) : (
+            <Pressable style={s.primaryBtn} onPress={() => router.replace("/(tabs)/academy" as any)}>
+              <Text style={s.primaryBtnText}>Go to academy</Text>
+            </Pressable>
+          )}
         </View>
       </View>
     );
@@ -451,7 +500,12 @@ export default function LessonDetailScreen() {
   return (
     <View style={s.root}>
       <View style={[s.header, { paddingTop: insets.top + 8 }]}>
-        <Pressable onPress={() => router.back()} style={s.headerBtn}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          onPress={() => router.back()}
+          style={s.headerBtn}
+        >
           <Ionicons name="chevron-back" size={22} color={hatchColors.text.primary} />
         </Pressable>
         <View style={s.headerMeta}>
@@ -487,13 +541,22 @@ export default function LessonDetailScreen() {
           <Animated.View entering={FadeInDown.delay(220).duration(250)} style={s.section}>
             <Text style={s.sectionTitle}>Lesson quiz</Text>
             <View style={s.quizCard}>
+              {!canTakeQuiz ? (
+                <View style={s.quizLockCard}>
+                  <Ionicons name="checkmark-done-circle" size={20} color={hatchColors.primary.default} />
+                  <Text style={s.quizLockTitle}>Finish practice first</Text>
+                  <Text style={s.quizLockText}>
+                    Complete all guided practice tasks to unlock the quiz for this lesson.
+                  </Text>
+                </View>
+              ) : null}
               {!showQuizResult ? (
                 <>
-                  <Text style={s.quizProgress}>
+                  <Text style={[s.quizProgress, !canTakeQuiz && s.disabledText]}>
                     Question {quizIndex + 1} / {quizQuestions.length}
                   </Text>
 
-                  {currentQuestion ? (
+                  {currentQuestion && canTakeQuiz ? (
                     <View>
                       <Text style={s.quizQuestion}>{currentQuestion.prompt}</Text>
 
@@ -534,32 +597,35 @@ export default function LessonDetailScreen() {
                     </View>
                   ) : null}
 
-                  <View style={s.quizNavRow}>
-                    <Pressable
-                      disabled={quizIndex === 0}
-                      onPress={() => setQuizIndex((value) => Math.max(0, value - 1))}
-                      style={[s.ghostBtn, quizIndex === 0 && s.disabledBtn]}
-                    >
-                      <Text style={s.ghostBtnText}>Back</Text>
-                    </Pressable>
+                  {canTakeQuiz ? (
+                    <View style={s.quizNavRow}>
+                      <Pressable
+                        disabled={quizIndex === 0}
+                        onPress={() => setQuizIndex((value) => Math.max(0, value - 1))}
+                        style={[s.ghostBtn, quizIndex === 0 && s.disabledBtn]}
+                      >
+                        <Text style={s.ghostBtnText}>Back</Text>
+                      </Pressable>
 
-                    {quizIndex < quizQuestions.length - 1 ? (
-                      <Pressable
-                        onPress={() => setQuizIndex((value) => Math.min(quizQuestions.length - 1, value + 1))}
-                        style={s.ghostBtn}
-                      >
-                        <Text style={s.ghostBtnText}>Next</Text>
-                      </Pressable>
-                    ) : (
-                      <Pressable
-                        disabled={answeredCount !== quizQuestions.length}
-                        onPress={handleSubmitQuiz}
-                        style={[s.submitBtn, answeredCount !== quizQuestions.length && s.disabledBtn]}
-                      >
-                        <Text style={s.submitBtnText}>Check answers</Text>
-                      </Pressable>
-                    )}
-                  </View>
+                      {quizIndex < quizQuestions.length - 1 ? (
+                        <Pressable
+                          onPress={() => setQuizIndex((value) => Math.min(quizQuestions.length - 1, value + 1))}
+                          style={s.ghostBtn}
+                        >
+                          <Text style={s.ghostBtnText}>Next</Text>
+                        </Pressable>
+                      ) : (
+                        <Pressable
+                          disabled={answeredCount !== quizQuestions.length}
+                          accessibilityState={{ disabled: answeredCount !== quizQuestions.length }}
+                          onPress={handleSubmitQuiz}
+                          style={[s.submitBtn, answeredCount !== quizQuestions.length && s.disabledBtn]}
+                        >
+                          <Text style={s.submitBtnText}>Check answers</Text>
+                        </Pressable>
+                      )}
+                    </View>
+                  ) : null}
                 </>
               ) : (
                 <View>
@@ -592,6 +658,9 @@ export default function LessonDetailScreen() {
                 Guided practice completed: {completedPracticeCount}/{practiceTasks.length}
               </Text>
             ) : null}
+            {practiceRequired && !practiceComplete ? (
+              <Text style={s.summaryHint}>Complete guided practice to unlock the quiz.</Text>
+            ) : null}
             {hasQuiz && !isCompleted ? (
               <Text style={s.summaryHint}>This lesson is completed automatically when you pass the quiz.</Text>
             ) : null}
@@ -617,7 +686,12 @@ export default function LessonDetailScreen() {
         </Pressable>
       </View>
 
-      <Modal visible={showCelebration} transparent animationType="fade">
+      <Modal
+        visible={showCelebration}
+        transparent
+        animationType="fade"
+        onRequestClose={handleContinueAfterCelebration}
+      >
         <View style={s.overlay}>
           <View style={s.modalCard}>
             <Ionicons name="trophy" size={54} color={hatchColors.primary.default} />
@@ -810,10 +884,33 @@ const s = StyleSheet.create({
     padding: 12,
     ...hatchShadows.sm,
   },
+  quizLockCard: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: hatchColors.primary.default,
+    backgroundColor: hatchColors.primary.muted,
+    padding: 10,
+    marginBottom: 8,
+  },
+  quizLockTitle: {
+    marginTop: 6,
+    fontSize: 13,
+    fontWeight: "800",
+    color: hatchColors.primary.default,
+  },
+  quizLockText: {
+    marginTop: 3,
+    fontSize: 12,
+    color: hatchColors.text.secondary,
+    lineHeight: 18,
+  },
   quizProgress: {
     fontSize: 12,
     fontWeight: "700",
     color: hatchColors.text.tertiary,
+  },
+  disabledText: {
+    opacity: 0.45,
   },
   quizQuestion: {
     marginTop: 8,

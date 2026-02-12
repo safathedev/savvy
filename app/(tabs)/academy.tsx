@@ -2,7 +2,7 @@
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import React, { useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -12,6 +12,7 @@ import {
   getCourseProgress,
   getFirstIncompleteLesson,
   getLevelProgress,
+  isLessonPremium,
   isLessonUnlocked,
   momsInvestmentJourney,
 } from "@/data/moms-investment-journey";
@@ -32,7 +33,7 @@ function levelHeadline(levelId: CourseLevel["level_id"]): string {
 export default function AcademyScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { completedLessons } = useApp();
+  const { completedLessons, isPremium } = useApp();
   const [activeLevel, setActiveLevel] = useState<CourseLevel["level_id"]>("beginner");
 
   const currentLevel = useMemo(
@@ -44,9 +45,24 @@ export default function AcademyScreen() {
   const courseProgress = getCourseProgress(completedLessons);
 
   const handleOpenLesson = (lessonId: string) => {
+    const premiumLocked = isLessonPremium(lessonId) && !isPremium;
+    if (premiumLocked) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Alert.alert(
+        "Premium lesson",
+        "This lesson is part of Savvy Premium. Upgrade to unlock the full path.",
+        [
+          { text: "Not now", style: "cancel" },
+          { text: "See plans", onPress: () => router.push("/paywall") },
+        ]
+      );
+      return;
+    }
+
     const unlocked = isLessonUnlocked(lessonId, completedLessons);
     if (!unlocked && !completedLessons.includes(lessonId)) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Alert.alert("Lesson locked", "Finish the previous lesson first to keep your learning path structured.");
       return;
     }
 
@@ -132,7 +148,9 @@ export default function AcademyScreen() {
             {module.lessons.map((lesson) => {
               const completed = completedLessons.includes(lesson.lesson_id);
               const unlocked = isLessonUnlocked(lesson.lesson_id, completedLessons);
-              const locked = !completed && !unlocked;
+              const premiumLocked = isLessonPremium(lesson.lesson_id) && !isPremium;
+              const progressionLocked = !completed && !unlocked;
+              const locked = premiumLocked || progressionLocked;
               const isNext = nextLesson?.lesson_id === lesson.lesson_id;
 
               return (
@@ -147,11 +165,11 @@ export default function AcademyScreen() {
                         pressed && !locked && s.pressed,
                       ]}
                     >
-                      <View style={[s.lessonIcon, locked && s.lessonIconLocked]}>
-                        <Ionicons
-                          name={completed ? "checkmark" : locked ? "lock-closed" : "play"}
-                          size={16}
-                          color={locked ? hatchColors.text.tertiary : "#FFFFFF"}
+                        <View style={[s.lessonIcon, locked && s.lessonIconLocked]}>
+                          <Ionicons
+                            name={completed ? "checkmark" : locked ? "lock-closed" : "play"}
+                            size={16}
+                            color={locked ? hatchColors.text.tertiary : "#FFFFFF"}
                         />
                       </View>
 
@@ -169,6 +187,15 @@ export default function AcademyScreen() {
                         <Text style={s.lessonMeta} numberOfLines={2}>
                           {lesson.duration} - {lesson.objective}
                         </Text>
+                        {premiumLocked ? (
+                          <View style={s.premiumLockPill}>
+                            <Ionicons name="diamond" size={11} color={hatchColors.primary.default} />
+                            <Text style={s.premiumLockText}>Premium</Text>
+                          </View>
+                        ) : null}
+                        {progressionLocked && !premiumLocked ? (
+                          <Text style={s.lockedHint}>Complete the previous lesson to unlock</Text>
+                        ) : null}
                       </View>
                     </View>
                   )}
@@ -379,6 +406,28 @@ const s = StyleSheet.create({
     fontSize: 10,
     fontWeight: "800",
     color: hatchColors.primary.default,
+  },
+  premiumLockPill: {
+    alignSelf: "flex-start",
+    marginTop: 8,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: hatchColors.primary.muted,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  premiumLockText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: hatchColors.primary.default,
+  },
+  lockedHint: {
+    marginTop: 8,
+    fontSize: 11,
+    color: hatchColors.text.tertiary,
+    fontWeight: "600",
   },
   pressed: {
     transform: [{ scale: 0.99 }],

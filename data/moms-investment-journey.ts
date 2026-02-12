@@ -45,6 +45,7 @@ export interface Lesson {
   title: string;
   duration: string;
   objective: string;
+  isPremium?: boolean;
   content_blocks?: LessonContentBlock[];
   interactive_tasks?: InteractiveTask[];
   quiz?: { questions: QuizQuestion[] };
@@ -771,7 +772,119 @@ function buildQuiz(seed: LessonSeed): { questions: QuizQuestion[] } {
   };
 }
 
-function buildLesson(seed: LessonSeed): Lesson {
+function buildDefaultInteractiveTask(seed: LessonSeed): InteractiveTask {
+  if (seed.taskType === "quick_calc") {
+    return {
+      task_id: `${seed.id}_quick_calc`,
+      type: "quick_calc",
+      title: "Quick scenario check",
+      description: "Use realistic numbers from your own life.",
+      fields: [
+        { key: "value_a", label: "Input A", placeholder: "100" },
+        { key: "value_b", label: "Input B", placeholder: "50" },
+      ],
+      hint: "Enter approximate values. Accuracy can improve over time.",
+    };
+  }
+
+  if (seed.taskType === "mini_plan_builder") {
+    return {
+      task_id: `${seed.id}_mini_plan`,
+      type: "mini_plan_builder",
+      title: "Build your mini plan",
+      description: "Define one concrete action and one fallback action.",
+      fields: [
+        { key: "main_action_amount", label: "Main monthly amount", placeholder: "100" },
+        { key: "fallback_amount", label: "Fallback monthly amount", placeholder: "25" },
+      ],
+      hint: "Fallback should feel easy enough to keep during busy months.",
+    };
+  }
+
+  if (seed.taskType === "comparison_picker") {
+    return {
+      task_id: `${seed.id}_comparison`,
+      type: "comparison_picker",
+      title: "Choose the stronger option",
+      description: "Pick the option that is more resilient over time.",
+      options: [
+        {
+          id: "steady_system",
+          label: "Use a simple repeatable system",
+          feedback: "Great choice. Repeatability usually wins over intensity.",
+        },
+        {
+          id: "reactive_choice",
+          label: "Change strategy every week",
+          feedback: "Frequent changes often reduce consistency and increase stress.",
+        },
+      ],
+      hint: "Prefer options you can repeat even during stressful weeks.",
+    };
+  }
+
+  if (seed.taskType === "scenario_choice") {
+    return {
+      task_id: `${seed.id}_scenario`,
+      type: "scenario_choice",
+      title: "Real-life decision",
+      description: "Pick the response that protects consistency.",
+      options: [
+        {
+          id: "calm_step",
+          label: "Take one small, trackable step now",
+          feedback: "Correct direction. Small actions create momentum.",
+        },
+        {
+          id: "delay_step",
+          label: "Wait for a perfect week to start",
+          feedback: "Perfection delays progress. Start with a small practical move.",
+        },
+      ],
+      hint: "Momentum matters more than perfect timing.",
+    };
+  }
+
+  if (seed.taskType === "slider") {
+    return {
+      task_id: `${seed.id}_confidence_slider`,
+      type: "slider",
+      title: "Confidence check",
+      description: "How confident do you feel applying this today?",
+      options: [
+        { id: "c1", label: "1 - very low" },
+        { id: "c2", label: "2 - low" },
+        { id: "c3", label: "3 - medium" },
+        { id: "c4", label: "4 - good" },
+        { id: "c5", label: "5 - very high" },
+      ],
+      hint: "Pick one level, then choose one action that can raise it by one step.",
+    };
+  }
+
+  if (seed.taskType === "number_input") {
+    return {
+      task_id: `${seed.id}_number_input`,
+      type: "number_input",
+      title: "Run a personal estimate",
+      description: "Estimate a realistic monthly amount for this concept.",
+      fields: [{ key: "monthly_amount", label: "Monthly amount", placeholder: "100" }],
+      hint: "Start with a realistic amount you can sustain.",
+    };
+  }
+
+  return {
+    task_id: `${seed.id}_practice_choice`,
+    type: "multi_choice",
+    title: "Pick your next action",
+    options: [
+      { id: "one_step", label: "Take one practical step this week" },
+      { id: "wait", label: "Wait until conditions are perfect" },
+    ],
+  };
+}
+
+function buildLesson(seed: LessonSeed, levelId: CourseLevel["level_id"]): Lesson {
   const customTasks = BEGINNER_INTERACTIVE_TASKS[seed.id];
   const customQuiz = BEGINNER_QUIZ_OVERRIDES[seed.id];
 
@@ -780,17 +893,23 @@ function buildLesson(seed: LessonSeed): Lesson {
     title: seed.title,
     duration: seed.duration,
     objective: seed.objective,
+    isPremium: levelId !== "beginner",
     content_blocks: buildContentBlocks(seed),
-    interactive_tasks: customTasks,
+    interactive_tasks: customTasks ?? [buildDefaultInteractiveTask(seed)],
     quiz: customQuiz ?? buildQuiz(seed),
   };
 }
 
-function buildModule(moduleId: string, title: string, lessons: LessonSeed[]): Module {
+function buildModule(
+  moduleId: string,
+  title: string,
+  lessons: LessonSeed[],
+  levelId: CourseLevel["level_id"]
+): Module {
   return {
     module_id: moduleId,
     title,
-    lessons: lessons.map(buildLesson),
+    lessons: lessons.map((seed) => buildLesson(seed, levelId)),
   };
 }
 
@@ -810,7 +929,7 @@ const beginnerModules: Module[] = [
       objective: "Understand what comes in, what goes out, and what is left.",
       taskType: "quick_calc",
     },
-  ]),
+  ], "beginner"),
   buildModule("b2_budgeting_for_real_life", "Budgeting that works", [
     {
       id: "b2_l1_simple_budget_method",
@@ -826,7 +945,7 @@ const beginnerModules: Module[] = [
       objective: "Compare products by value and spend smarter with less effort.",
       taskType: "comparison_picker",
     },
-  ]),
+  ], "beginner"),
   buildModule("b3_saving_and_emergency_fund", "Saving without stress", [
     {
       id: "b3_l1_emergency_fund",
@@ -842,7 +961,7 @@ const beginnerModules: Module[] = [
       objective: "Define an automatic saving rule with a fallback amount.",
       taskType: "mini_plan_builder",
     },
-  ]),
+  ], "beginner"),
   buildModule("b4_investing_basics", "Investing basics", [
     {
       id: "b4_l1_what_is_investing",
@@ -858,7 +977,7 @@ const beginnerModules: Module[] = [
       objective: "Understand diversification and pick your risk comfort level.",
       taskType: "multi_choice",
     },
-  ]),
+  ], "beginner"),
 ];
 
 const intermediateModules: Module[] = [
@@ -877,7 +996,7 @@ const intermediateModules: Module[] = [
       objective: "Choose and automate a realistic debt payoff strategy.",
       taskType: "scenario_choice",
     },
-  ]),
+  ], "intermediate"),
   buildModule("i2_investing_routine", "Your investing routine", [
     {
       id: "i2_l1_simple_portfolio_setup",
@@ -893,7 +1012,7 @@ const intermediateModules: Module[] = [
       objective: "Run a monthly investing process with clear rebalancing rules.",
       taskType: "mini_plan_builder",
     },
-  ]),
+  ], "intermediate"),
   buildModule("i3_family_planning_systems", "Family planning systems", [
     {
       id: "i3_l1_sinking_funds",
@@ -909,7 +1028,7 @@ const intermediateModules: Module[] = [
       objective: "Prioritize household protection layers for stronger resilience.",
       taskType: "comparison_picker",
     },
-  ]),
+  ], "intermediate"),
   buildModule("i4_behavior_and_review", "Behavior and review", [
     {
       id: "i4_l1_spending_triggers",
@@ -925,7 +1044,7 @@ const intermediateModules: Module[] = [
       objective: "Set a short weekly checklist for calm money control.",
       taskType: "mini_plan_builder",
     },
-  ]),
+  ], "intermediate"),
 ];
 
 const advancedModules: Module[] = [
@@ -944,7 +1063,7 @@ const advancedModules: Module[] = [
       objective: "Improve after-tax outcomes through better account structure.",
       taskType: "comparison_picker",
     },
-  ]),
+  ], "advanced"),
   buildModule("a2_portfolio_maintenance", "Portfolio maintenance", [
     {
       id: "a2_l1_rebalancing_decisions",
@@ -960,7 +1079,7 @@ const advancedModules: Module[] = [
       objective: "Use buffers and rules to handle drawdown periods.",
       taskType: "quick_calc",
     },
-  ]),
+  ], "advanced"),
   buildModule("a3_family_future_planning", "Family future planning", [
     {
       id: "a3_l1_education_goal_planning",
@@ -976,7 +1095,7 @@ const advancedModules: Module[] = [
       objective: "Handle trade-offs with a clear priority framework.",
       taskType: "comparison_picker",
     },
-  ]),
+  ], "advanced"),
   buildModule("a4_decision_quality", "Decision quality and resilience", [
     {
       id: "a4_l1_decision_framework",
@@ -992,7 +1111,7 @@ const advancedModules: Module[] = [
       objective: "Create a written playbook for market and life shocks.",
       taskType: "scenario_choice",
     },
-  ]),
+  ], "advanced"),
 ];
 
 export const momsInvestmentJourney: CourseLevel[] = [
@@ -1079,6 +1198,18 @@ export function isLessonUnlocked(
   if (!current || !previous) return false;
   if (completedLessons.includes(current.lesson_id)) return true;
   return completedLessons.includes(previous.lesson_id);
+}
+
+export function isLevelPremium(levelId: CourseLevel["level_id"]): boolean {
+  return levelId !== "beginner";
+}
+
+export function isLessonPremium(lessonId: string): boolean {
+  const lesson = findLessonById(lessonId);
+  if (!lesson) return false;
+  if (typeof lesson.isPremium === "boolean") return lesson.isPremium;
+  const level = getLessonLevelId(lessonId);
+  return level ? isLevelPremium(level) : false;
 }
 
 export function getLevelProgress(

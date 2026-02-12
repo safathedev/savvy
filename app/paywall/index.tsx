@@ -1,23 +1,46 @@
-// Savvy Paywall — Premium Dark Design
 import { hatchRadius, hatchShadows, hatchSpacing } from "@/constants/theme";
 import { useApp } from "@/lib/app-context";
-import { purchasePackage, restorePurchases } from "@/lib/revenuecat";
+import { PRODUCTS, purchasePackage, restorePurchases } from "@/lib/revenuecat";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import React, { useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import React, { useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type PlanType = "monthly" | "annual";
 
-const features = [
-  { icon: "💎", title: "Unlock Unlimited", description: "Remove all limits on tracking" },
-  { icon: "📚", title: "Complete Academy", description: "Access all 8 masterclasses" },
-  { icon: "💡", title: "Pro Tips Library", description: "16+ advanced saving strategies" },
-  { icon: "🚀", title: "Priority Features", description: "First access to new tools" },
+const premiumFeatures = [
+  {
+    icon: "school",
+    title: "16 extra Academy lessons",
+    description: "Unlock Intermediate + Advanced (24 lessons total).",
+  },
+  {
+    icon: "bar-chart",
+    title: "Deeper money insights",
+    description: "Track trends, planned costs, and goal progress with more detail.",
+  },
+  {
+    icon: "sparkles",
+    title: "Custom calendar categories",
+    description: "Create personal categories for your family routine.",
+  },
+  {
+    icon: "notifications",
+    title: "Priority reminder tools",
+    description: "More reminder options and premium planning nudges as features roll out.",
+  },
 ];
 
 export default function PaywallScreen() {
@@ -28,19 +51,30 @@ export default function PaywallScreen() {
   const [selectedPlan, setSelectedPlan] = useState<PlanType>("annual");
   const [isLoading, setIsLoading] = useState(false);
 
+  const selectedProduct = useMemo(
+    () => (selectedPlan === "annual" ? PRODUCTS.ANNUAL : PRODUCTS.MONTHLY),
+    [selectedPlan]
+  );
+
   const handlePurchase = async () => {
     setIsLoading(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
-      const { success } = await purchasePackage(selectedPlan === "annual" ? "savvy_annual" : "savvy_monthly");
-      if (success) {
-        await setPremium(true);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        router.back();
+      const { success, error } = await purchasePackage(selectedProduct.id);
+
+      if (!success) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        Alert.alert("Purchase failed", error || "Please try again.");
+        return;
       }
-    } catch (error) {
+
+      await setPremium(true);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.back();
+    } catch {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert("Purchase failed", "Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -52,149 +86,147 @@ export default function PaywallScreen() {
 
     try {
       const restored = await restorePurchases();
-      if (restored) {
+      if (restored.success && restored.hasPremium) {
         await setPremium(true);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         router.back();
+        return;
       }
-    } catch (error) {
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Alert.alert(
+        "No active premium found",
+        "We could not find an active premium subscription to restore."
+      );
+    } catch {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert("Restore failed", "Please try again.");
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <View style={styles.container}>
+    <View style={s.container}>
       <LinearGradient
-        colors={['#0F172A', '#1E293B']}
+        colors={["#F0FFF7", "#FFFDF5", "#F7FAFF"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
 
-      {/* Close Button */}
       <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Close premium screen"
         onPress={() => router.back()}
-        style={[styles.closeButton, { top: insets.top + 8 }]}
+        style={[s.closeButton, { top: insets.top + 8 }]}
       >
-        <Ionicons name="close" size={24} color="#94A3B8" />
+        <Ionicons name="close" size={22} color="#374151" />
       </Pressable>
 
       <ScrollView
         contentContainerStyle={[
-          styles.scrollContent,
-          { paddingTop: insets.top + 60, paddingBottom: insets.bottom + 16 },
+          s.scrollContent,
+          { paddingTop: insets.top + 56, paddingBottom: insets.bottom + 16 },
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
-        <Animated.View entering={FadeInDown.delay(100).duration(400)} style={styles.header}>
-          <View style={styles.iconCircle}>
-            <LinearGradient
-              colors={['rgba(16, 185, 129, 0.2)', 'rgba(16, 185, 129, 0)']}
-              style={StyleSheet.absoluteFill}
-            />
-            <Ionicons name="diamond" size={48} color="#10B981" />
+        <Animated.View entering={FadeInDown.delay(60).duration(350)} style={s.header}>
+          <View style={s.heroIconWrap}>
+            <Text style={s.heroEmoji}>*</Text>
           </View>
-          <Text style={styles.title}>Unlock <Text style={{ color: '#10B981' }}>Unlimited</Text></Text>
-          <Text style={styles.subtitle}>
-            Join the elite club of high performers mastering their wealth.
+          <Text style={s.title}>Savvy Premium</Text>
+          <Text style={s.subtitle}>
+            More guidance, deeper planning, and a calmer path for your family finances.
           </Text>
+          <View style={s.priceHintPill}>
+            <Text style={s.priceHintText}>Now from {PRODUCTS.MONTHLY.price} per month</Text>
+          </View>
         </Animated.View>
 
-        {/* Features */}
-        <Animated.View entering={FadeInDown.delay(200).duration(400)} style={styles.featuresSection}>
-          {features.map((feature, index) => (
-            <View key={index} style={styles.featureItem}>
-              <View style={styles.featureIcon}>
-                <Text style={styles.featureEmoji}>{feature.icon}</Text>
+        <Animated.View entering={FadeInDown.delay(110).duration(350)} style={s.featuresCard}>
+          {premiumFeatures.map((feature, index) => (
+            <View key={feature.title} style={[s.featureRow, index === premiumFeatures.length - 1 && s.featureRowLast]}>
+              <View style={s.featureIconWrap}>
+                <Ionicons name={feature.icon as any} size={18} color="#059669" />
               </View>
-              <View style={styles.featureContent}>
-                <Text style={styles.featureTitle}>{feature.title}</Text>
-                <Text style={styles.featureDescription}>{feature.description}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={s.featureTitle}>{feature.title}</Text>
+                <Text style={s.featureDescription}>{feature.description}</Text>
               </View>
-              <Ionicons name="checkmark-circle" size={20} color="#10B981" />
             </View>
           ))}
         </Animated.View>
 
-        {/* Plans */}
-        <Animated.View entering={FadeInDown.delay(300).duration(400)} style={styles.plansSection}>
-
-          {/* Annual Plan */}
+        <Animated.View entering={FadeInDown.delay(150).duration(350)} style={s.planSection}>
           <Pressable
-            onPress={() => { Haptics.selectionAsync(); setSelectedPlan("annual"); }}
-            style={[styles.planCard, selectedPlan === "annual" && styles.planCardSelected]}
+            accessibilityRole="button"
+            accessibilityLabel="Select annual plan"
+            onPress={() => {
+              Haptics.selectionAsync();
+              setSelectedPlan("annual");
+            }}
+            style={[s.planCard, selectedPlan === "annual" && s.planCardSelected]}
           >
-            {selectedPlan === "annual" && (
-              <View style={[styles.glowContainer, { opacity: 0.1 }]}>
-                <LinearGradient colors={['#10B981', 'transparent']} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} />
-              </View>
-            )}
-            <View style={styles.bestValueBadge}>
-              <Text style={styles.bestValueText}>BEST VALUE</Text>
+            <View style={s.planLeft}>
+              <Text style={s.planTitle}>Annual</Text>
+              <Text style={s.planPrice}>
+                {PRODUCTS.ANNUAL.price}
+                <Text style={s.planPeriod}> / year</Text>
+              </Text>
+              <Text style={s.planMeta}>
+                {PRODUCTS.ANNUAL.pricePerMonth}/month - Save {PRODUCTS.ANNUAL.savings}
+              </Text>
             </View>
-            <View style={styles.planRadio}>
-              <View style={[styles.radioOuter, selectedPlan === "annual" && styles.radioOuterSelected]}>
-                {selectedPlan === "annual" && <View style={styles.radioInner} />}
-              </View>
-            </View>
-            <View style={styles.planContent}>
-              <Text style={styles.planName}>Annual Access</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
-                <Text style={styles.planPrice}>£19.99</Text>
-                <Text style={styles.planPeriod}>/ year</Text>
-              </View>
-              <Text style={styles.planSavings}>Save 58% vs monthly</Text>
+            <View style={[s.radioOuter, selectedPlan === "annual" && s.radioOuterActive]}>
+              {selectedPlan === "annual" && <View style={s.radioInner} />}
             </View>
           </Pressable>
 
-          {/* Monthly Plan */}
           <Pressable
-            onPress={() => { Haptics.selectionAsync(); setSelectedPlan("monthly"); }}
-            style={[styles.planCard, selectedPlan === "monthly" && styles.planCardSelected]}
+            accessibilityRole="button"
+            accessibilityLabel="Select monthly plan"
+            onPress={() => {
+              Haptics.selectionAsync();
+              setSelectedPlan("monthly");
+            }}
+            style={[s.planCard, selectedPlan === "monthly" && s.planCardSelected]}
           >
-            {selectedPlan === "monthly" && (
-              <View style={[styles.glowContainer, { opacity: 0.1 }]}>
-                <LinearGradient colors={['#10B981', 'transparent']} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} />
-              </View>
-            )}
-            <View style={styles.planRadio}>
-              <View style={[styles.radioOuter, selectedPlan === "monthly" && styles.radioOuterSelected]}>
-                {selectedPlan === "monthly" && <View style={styles.radioInner} />}
-              </View>
+            <View style={s.planLeft}>
+              <Text style={s.planTitle}>Monthly</Text>
+              <Text style={s.planPrice}>
+                {PRODUCTS.MONTHLY.price}
+                <Text style={s.planPeriod}> / month</Text>
+              </Text>
+              <Text style={s.planMeta}>Flexible and cancel anytime</Text>
             </View>
-            <View style={styles.planContent}>
-              <Text style={styles.planName}>Monthly</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
-                <Text style={styles.planPrice}>£3.99</Text>
-                <Text style={styles.planPeriod}>/ month</Text>
-              </View>
+            <View style={[s.radioOuter, selectedPlan === "monthly" && s.radioOuterActive]}>
+              {selectedPlan === "monthly" && <View style={s.radioInner} />}
             </View>
           </Pressable>
         </Animated.View>
 
-        {/* CTA */}
-        <Animated.View entering={FadeInDown.delay(400).duration(400)} style={styles.ctaSection}>
+        <Animated.View entering={FadeInDown.delay(190).duration(350)} style={s.ctaSection}>
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Start ${selectedPlan} premium plan`}
             onPress={handlePurchase}
             disabled={isLoading}
-            style={({ pressed }) => [styles.ctaButton, pressed && !isLoading && styles.buttonPressed]}
+            style={({ pressed }) => [s.ctaButton, pressed && !isLoading && s.buttonPressed]}
           >
             {isLoading ? (
               <ActivityIndicator color="#FFFFFF" />
             ) : (
-              <Text style={styles.ctaText}>
-                {selectedPlan === "annual" ? "Start Annual Plan" : "Start Monthly Plan"}
-              </Text>
+              <Text style={s.ctaText}>Start {selectedPlan === "annual" ? "annual" : "monthly"} plan</Text>
             )}
           </Pressable>
 
-          <Pressable onPress={handleRestore} disabled={isLoading} style={styles.restoreButton}>
-            <Text style={styles.restoreText}>Restore Purchases</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel="Restore purchases" onPress={handleRestore} disabled={isLoading} style={s.restoreButton}>
+            <Text style={s.restoreText}>Restore purchases</Text>
           </Pressable>
 
-          <Text style={styles.disclaimer}>
-            Cancel anytime. Subscription automatically renews.
+          <Text style={s.disclaimer}>
+            Demo mode is currently active. Billing is simulated for now.
           </Text>
         </Animated.View>
       </ScrollView>
@@ -202,49 +234,143 @@ export default function PaywallScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0F172A' },
-  closeButton: { position: "absolute", right: hatchSpacing.screenPadding, zIndex: 10, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: "center", justifyContent: "center" },
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#F8FAFC" },
+  closeButton: {
+    position: "absolute",
+    right: hatchSpacing.screenPadding,
+    zIndex: 20,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "rgba(255,255,255,0.9)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(15, 23, 42, 0.08)",
+  },
   scrollContent: { paddingHorizontal: hatchSpacing.screenPadding },
 
-  header: { alignItems: "center", marginBottom: 32 },
-  iconCircle: { width: 88, height: 88, borderRadius: 44, backgroundColor: 'rgba(255,255,255,0.05)', alignItems: "center", justifyContent: "center", marginBottom: 20, borderWidth: 1, borderColor: 'rgba(252, 211, 77, 0.2)', overflow: 'hidden' },
-  title: { fontSize: 32, fontWeight: "900", color: "#FFFFFF", textAlign: "center", marginBottom: 8, letterSpacing: -1 },
-  subtitle: { fontSize: 15, color: "#94A3B8", textAlign: "center", lineHeight: 22, maxWidth: '80%' },
+  header: { alignItems: "center", marginBottom: 22 },
+  heroIconWrap: {
+    width: 86,
+    height: 86,
+    borderRadius: 43,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+    ...hatchShadows.sm,
+  },
+  heroEmoji: { fontSize: 40 },
+  title: { fontSize: 31, fontWeight: "900", color: "#111827" },
+  subtitle: {
+    marginTop: 8,
+    textAlign: "center",
+    fontSize: 14,
+    lineHeight: 20,
+    color: "#4B5563",
+    maxWidth: "92%",
+  },
+  priceHintPill: {
+    marginTop: 12,
+    borderRadius: 999,
+    backgroundColor: "rgba(16, 185, 129, 0.12)",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  priceHintText: { fontSize: 12, fontWeight: "800", color: "#047857" },
 
-  featuresSection: { backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 24, padding: 20, marginBottom: 32, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
-  featureItem: { flexDirection: "row", alignItems: "center", paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' },
-  featureIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.05)', alignItems: "center", justifyContent: "center", marginRight: 14 },
-  featureEmoji: { fontSize: 18 },
-  featureContent: { flex: 1 },
-  featureTitle: { fontSize: 15, fontWeight: "700", color: "#FFFFFF" },
-  featureDescription: { fontSize: 12, color: "#94A3B8", marginTop: 2 },
+  featuresCard: {
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    padding: 14,
+    marginBottom: 16,
+    ...hatchShadows.sm,
+  },
+  featureRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#E5E7EB",
+    gap: 10,
+  },
+  featureRowLast: { borderBottomWidth: 0 },
+  featureIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: "rgba(16, 185, 129, 0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 1,
+  },
+  featureTitle: { fontSize: 14, fontWeight: "800", color: "#111827" },
+  featureDescription: { marginTop: 2, fontSize: 12, lineHeight: 17, color: "#6B7280" },
 
-  plansSection: { marginBottom: 32 },
-  planCard: { flexDirection: "row", alignItems: "center", backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 20, padding: 20, marginBottom: 12, borderWidth: 2, borderColor: 'transparent', position: "relative", overflow: "hidden" },
-  planCardSelected: { borderColor: '#10B981', backgroundColor: 'rgba(16, 185, 129, 0.05)' },
-  glowContainer: { ...StyleSheet.absoluteFillObject, opacity: 0.5 },
-
-  bestValueBadge: { position: "absolute", top: 0, right: 0, backgroundColor: '#10B981', paddingHorizontal: 10, paddingVertical: 4, borderBottomLeftRadius: 12 },
-  bestValueText: { fontSize: 11, fontWeight: "900", color: '#0F172A' },
-
-  planRadio: { marginRight: 16 },
-  radioOuter: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: '#475569', alignItems: "center", justifyContent: "center" },
-  radioOuterSelected: { borderColor: '#10B981' },
-  radioInner: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#10B981' },
-
-  planContent: { flex: 1 },
-  planName: { fontSize: 14, fontWeight: "600", color: "#FFFFFF", marginBottom: 2 },
-  planPrice: { fontSize: 22, fontWeight: "800", color: "#10B981" },
-  planPeriod: { fontSize: 13, fontWeight: "500", color: "#94A3B8" },
-  planSavings: { fontSize: 12, color: "#4ADE80", fontWeight: "700", marginTop: 2 },
+  planSection: { marginBottom: 16 },
+  planCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    backgroundColor: "#FFFFFF",
+    padding: 14,
+    marginBottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  planCardSelected: {
+    borderColor: "#10B981",
+    backgroundColor: "rgba(16, 185, 129, 0.08)",
+  },
+  planLeft: { flex: 1, marginRight: 12 },
+  planTitle: { fontSize: 13, fontWeight: "800", color: "#374151", textTransform: "uppercase" },
+  planPrice: { marginTop: 4, fontSize: 23, fontWeight: "900", color: "#111827" },
+  planPeriod: { fontSize: 13, fontWeight: "600", color: "#6B7280" },
+  planMeta: { marginTop: 3, fontSize: 12, color: "#047857", fontWeight: "700" },
+  radioOuter: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: "#9CA3AF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  radioOuterActive: { borderColor: "#10B981" },
+  radioInner: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#10B981" },
 
   ctaSection: { alignItems: "center" },
-  ctaButton: { width: "100%", borderRadius: hatchRadius.full, backgroundColor: '#10B981', paddingVertical: 18, alignItems: "center", ...hatchShadows.glow },
-  buttonPressed: { opacity: 0.9, transform: [{ scale: 0.98 }] },
-  ctaText: { fontSize: 16, fontWeight: "900", color: '#FFFFFF', textTransform: 'uppercase', letterSpacing: 0.5 },
-
-  restoreButton: { marginTop: 20, padding: 12 },
-  restoreText: { fontSize: 13, color: "#10B981", fontWeight: "600" },
-  disclaimer: { fontSize: 11, color: "#64748B", textAlign: "center", marginTop: 12 },
+  ctaButton: {
+    width: "100%",
+    borderRadius: hatchRadius.full,
+    backgroundColor: "#10B981",
+    paddingVertical: 17,
+    alignItems: "center",
+    ...hatchShadows.glow,
+  },
+  buttonPressed: { opacity: 0.92, transform: [{ scale: 0.99 }] },
+  ctaText: {
+    fontSize: 15,
+    fontWeight: "900",
+    color: "#FFFFFF",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  restoreButton: { marginTop: 14, padding: 10 },
+  restoreText: { fontSize: 13, fontWeight: "700", color: "#047857" },
+  disclaimer: {
+    marginTop: 6,
+    fontSize: 11,
+    lineHeight: 16,
+    textAlign: "center",
+    color: "#6B7280",
+  },
 });
+
+
+

@@ -2,6 +2,11 @@
 import { hatchColors, hatchShadows } from "@/constants/theme";
 import { useStreak } from "@/hooks/use-streak";
 import { useApp } from "@/lib/app-context";
+import {
+  cancelDailyReminder,
+  requestNotificationPermissions,
+  scheduleDailyReminder,
+} from "@/lib/notifications";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
@@ -27,12 +32,24 @@ function normalizeReminderTime(value: string): string {
   return `${digits.slice(0, 2)}:${digits.slice(2)}`;
 }
 
+function isValidReminderTime(value: string): boolean {
+  return /^([01]\d|2[0-3]):([0-5]\d)$/.test(value);
+}
+
+function parseReminderTime(value: string): { hour: number; minute: number } | null {
+  if (!isValidReminderTime(value)) return null;
+  const [hour, minute] = value.split(":").map(Number);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+  return { hour, minute };
+}
+
 export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const {
     userProfile,
     setUserProfile,
+    setNotificationSettings,
     completedLessons,
     appliedTips,
     isPremium,
@@ -72,9 +89,15 @@ export default function ProfileScreen() {
   const saveProfile = async () => {
     if (!userProfile) return;
 
+    if (!editName.trim()) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Alert.alert("Name required", "Please enter at least one character for your profile name.");
+      return;
+    }
+
     await setUserProfile({
       ...userProfile,
-      name: editName.trim() || "User",
+      name: editName.trim(),
     });
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -89,12 +112,35 @@ export default function ProfileScreen() {
   const saveReminder = async () => {
     if (!userProfile) return;
     const normalized = normalizeReminderTime(editReminder);
-    if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(normalized)) return;
+    if (!isValidReminderTime(normalized)) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Alert.alert("Invalid time", "Please use HH:MM in 24-hour format.");
+      return;
+    }
+
+    const parsed = parseReminderTime(normalized);
+    if (!parsed) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Alert.alert("Invalid time", "Please use HH:MM in 24-hour format.");
+      return;
+    }
 
     await setUserProfile({
       ...userProfile,
       reminderTime: normalized,
     });
+    await setNotificationSettings({
+      enabled: userProfile.notificationsEnabled,
+      reminderTime: normalized,
+    });
+
+    if (userProfile.notificationsEnabled) {
+      const scheduleId = await scheduleDailyReminder(parsed.hour, parsed.minute);
+      if (!scheduleId) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        Alert.alert("Reminder update", "The reminder time was saved, but scheduling failed on this device.");
+      }
+    }
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setReminderModalVisible(false);
@@ -105,6 +151,55 @@ export default function ProfileScreen() {
     await setUserProfile({ ...userProfile, currency: nextCurrency });
     Haptics.selectionAsync();
     setCurrencyModalVisible(false);
+  };
+
+  const handleNotificationToggle = async (value: boolean) => {
+    if (!userProfile) return;
+
+    if (!value) {
+      await cancelDailyReminder();
+      await setUserProfile({ ...userProfile, notificationsEnabled: false });
+      await setNotificationSettings({
+        enabled: false,
+        reminderTime: userProfile.reminderTime || "09:00",
+      });
+      Haptics.selectionAsync();
+      return;
+    }
+
+    const granted = await requestNotificationPermissions();
+    if (!granted) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Alert.alert(
+        "Notifications disabled",
+        "Savvy needs notification permission to send daily reminders."
+      );
+      await setUserProfile({ ...userProfile, notificationsEnabled: false });
+      await setNotificationSettings({
+        enabled: false,
+        reminderTime: userProfile.reminderTime || "09:00",
+      });
+      return;
+    }
+
+    const reminder = parseReminderTime(userProfile.reminderTime || "09:00");
+    if (reminder) {
+      const scheduleId = await scheduleDailyReminder(reminder.hour, reminder.minute);
+      if (!scheduleId) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        Alert.alert(
+          "Reminder setup",
+          "Notifications were enabled, but the daily reminder could not be scheduled."
+        );
+      }
+    }
+
+    await setUserProfile({ ...userProfile, notificationsEnabled: true });
+    await setNotificationSettings({
+      enabled: true,
+      reminderTime: userProfile.reminderTime || "09:00",
+    });
+    Haptics.selectionAsync();
   };
 
   const handleRate = async () => {
@@ -193,11 +288,7 @@ export default function ProfileScreen() {
           icon="notifications"
           label="Daily notifications"
           value={userProfile?.notificationsEnabled ?? true}
-          onChange={async (value) => {
-            if (!userProfile) return;
-            await setUserProfile({ ...userProfile, notificationsEnabled: value });
-            Haptics.selectionAsync();
-          }}
+          onChange={handleNotificationToggle}
         />
         <SettingRow
           icon="time"
@@ -212,12 +303,22 @@ export default function ProfileScreen() {
         <SettingRow icon="information-circle" label="Version" value="1.2.4" />
       </ScrollView>
 
-      <Modal visible={profileModalVisible} transparent animationType="fade">
+      <Modal
+        visible={profileModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setProfileModalVisible(false)}
+      >
         <View style={s.modalOverlay}>
           <View style={s.modalCard}>
             <View style={s.modalHeader}>
               <Text style={s.modalTitle}>Edit profile</Text>
-              <Pressable onPress={() => setProfileModalVisible(false)}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close edit profile"
+                style={s.modalCloseBtn}
+                onPress={() => setProfileModalVisible(false)}
+              >
                 <Ionicons name="close" size={22} color={hatchColors.text.secondary} />
               </Pressable>
             </View>
@@ -232,12 +333,22 @@ export default function ProfileScreen() {
         </View>
       </Modal>
 
-      <Modal visible={reminderModalVisible} transparent animationType="fade">
+      <Modal
+        visible={reminderModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setReminderModalVisible(false)}
+      >
         <View style={s.modalOverlay}>
           <View style={s.modalCard}>
             <View style={s.modalHeader}>
               <Text style={s.modalTitle}>Daily reminder</Text>
-              <Pressable onPress={() => setReminderModalVisible(false)}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close daily reminder"
+                style={s.modalCloseBtn}
+                onPress={() => setReminderModalVisible(false)}
+              >
                 <Ionicons name="close" size={22} color={hatchColors.text.secondary} />
               </Pressable>
             </View>
@@ -259,12 +370,22 @@ export default function ProfileScreen() {
         </View>
       </Modal>
 
-      <Modal visible={currencyModalVisible} transparent animationType="fade">
+      <Modal
+        visible={currencyModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCurrencyModalVisible(false)}
+      >
         <View style={s.modalOverlay}>
           <View style={s.modalCard}>
             <View style={s.modalHeader}>
               <Text style={s.modalTitle}>Select currency</Text>
-              <Pressable onPress={() => setCurrencyModalVisible(false)}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close currency selection"
+                style={s.modalCloseBtn}
+                onPress={() => setCurrencyModalVisible(false)}
+              >
                 <Ionicons name="close" size={22} color={hatchColors.text.secondary} />
               </Pressable>
             </View>
@@ -279,12 +400,22 @@ export default function ProfileScreen() {
         </View>
       </Modal>
 
-      <Modal visible={privacyModalVisible} transparent animationType="fade">
+      <Modal
+        visible={privacyModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPrivacyModalVisible(false)}
+      >
         <View style={s.modalOverlay}>
           <View style={s.modalCard}>
             <View style={s.modalHeader}>
               <Text style={s.modalTitle}>Privacy and security</Text>
-              <Pressable onPress={() => setPrivacyModalVisible(false)}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close privacy and security"
+                style={s.modalCloseBtn}
+                onPress={() => setPrivacyModalVisible(false)}
+              >
                 <Ionicons name="close" size={22} color={hatchColors.text.secondary} />
               </Pressable>
             </View>
@@ -486,6 +617,13 @@ const s = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 8,
+  },
+  modalCloseBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
   },
   modalTitle: { fontSize: 18, fontWeight: "800", color: hatchColors.text.primary },
   modalLabel: {

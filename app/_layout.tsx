@@ -1,6 +1,7 @@
 import { hatchColors } from "@/constants/theme";
 import "@/global.css";
 import { AppProvider } from "@/lib/app-context";
+import { initializePurchases } from "@/lib/revenuecat";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { DefaultTheme, ThemeProvider } from "@react-navigation/native";
 import { useFonts } from "expo-font";
@@ -52,6 +53,12 @@ export default function RootLayout() {
       });
     }
   }, [loaded, error]);
+
+  useEffect(() => {
+    initializePurchases().catch(() => {
+      // Keep app usable in dummy mode even if SDK init fails.
+    });
+  }, []);
 
   if (!loaded && !error) {
     return null;

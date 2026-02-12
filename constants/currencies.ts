@@ -34,10 +34,23 @@ export const defaultCurrency: CurrencyCode = "GBP";
 
 export function formatCurrency(
   amount: number,
-  currencyCode: CurrencyCode = "GBP"
+  currencyCode: CurrencyCode = "GBP",
+  options?: Intl.NumberFormatOptions
 ): string {
   const currency = currencies[currencyCode];
-  return `${currency.symbol}${amount.toFixed(2)}`;
+  const safeAmount = Number.isFinite(amount) ? amount : 0;
+
+  try {
+    return new Intl.NumberFormat(currency.locale, {
+      style: "currency",
+      currency: currency.code,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+      ...options,
+    }).format(safeAmount);
+  } catch {
+    return `${currency.symbol}${safeAmount.toFixed(2)}`;
+  }
 }
 
 export function formatCurrencyShort(
@@ -46,11 +59,24 @@ export function formatCurrencyShort(
   period?: "month" | "year"
 ): string {
   const currency = currencies[currencyCode];
-  const formattedAmount = amount >= 1000 ? `${(amount / 1000).toFixed(1)}k` : amount.toFixed(0);
+  const safeAmount = Number.isFinite(amount) ? amount : 0;
+  let formattedAmount: string;
 
-  if (period) {
-    return `${currency.symbol}${formattedAmount}/${period}`;
+  try {
+    formattedAmount = new Intl.NumberFormat(currency.locale, {
+      style: "currency",
+      currency: currency.code,
+      notation: "compact",
+      maximumFractionDigits: 1,
+    }).format(safeAmount);
+  } catch {
+    formattedAmount = safeAmount >= 1000 ? `${(safeAmount / 1000).toFixed(1)}k` : safeAmount.toFixed(0);
+    formattedAmount = `${currency.symbol}${formattedAmount}`;
   }
 
-  return `${currency.symbol}${formattedAmount}`;
+  if (period) {
+    return `${formattedAmount}/${period}`;
+  }
+
+  return formattedAmount;
 }

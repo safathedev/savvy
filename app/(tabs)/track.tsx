@@ -5,6 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import React, { useMemo, useState } from "react";
 import {
+  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -138,7 +139,11 @@ export default function TrackScreen() {
 
   const saveEntry = async () => {
     const amount = parseMoney(entryAmount);
-    if (!amount) return;
+    if (!amount) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Alert.alert("Amount required", "Please enter an amount greater than 0.");
+      return;
+    }
 
     const payload = {
       type: entryType,
@@ -173,7 +178,17 @@ export default function TrackScreen() {
   const saveGoal = async () => {
     const target = parseMoney(goalTarget);
     const current = parseMoney(goalCurrent);
-    if (!goalTitle.trim() || !target) return;
+    if (!goalTitle.trim()) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Alert.alert("Title required", "Please add a name for your savings goal.");
+      return;
+    }
+
+    if (!target) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Alert.alert("Target required", "Please enter a target amount greater than 0.");
+      return;
+    }
 
     if (editingGoal) {
       await updateSavingsGoal({
@@ -196,6 +211,36 @@ export default function TrackScreen() {
     setGoalModalVisible(false);
   };
 
+  const confirmDeleteEntry = (entry: SavingsEntry) => {
+    Alert.alert("Delete entry?", "This action cannot be undone.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          await deleteSavingsEntry(entry.id);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          setEntryModalVisible(false);
+        },
+      },
+    ]);
+  };
+
+  const confirmDeleteGoal = (goal: SavingsGoal) => {
+    Alert.alert("Delete goal?", "This action cannot be undone.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          await deleteSavingsGoal(goal.id);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          setGoalModalVisible(false);
+        },
+      },
+    ]);
+  };
+
   return (
     <View style={s.root}>
       <ScrollView
@@ -211,7 +256,15 @@ export default function TrackScreen() {
             <Text style={s.title}>Savings</Text>
             <Text style={s.subtitle}>Clear first. Details only when you need them.</Text>
           </View>
-          <Pressable style={s.statsBtn} onPress={() => setStatsVisible(true)}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open savings statistics"
+            style={s.statsBtn}
+            onPress={() => {
+              Haptics.selectionAsync();
+              setStatsVisible(true);
+            }}
+          >
             <Ionicons name="stats-chart" size={20} color={hatchColors.primary.default} />
           </Pressable>
         </View>
@@ -376,16 +429,31 @@ export default function TrackScreen() {
         )}
       </ScrollView>
 
-      <Pressable style={[s.fab, { bottom: insets.bottom + 24 }]} onPress={() => setEntryTypeModalVisible(true)}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Add savings entry"
+        style={[s.fab, { bottom: insets.bottom + 24 }]}
+        onPress={() => setEntryTypeModalVisible(true)}
+      >
         <Ionicons name="add" size={30} color="#FFFFFF" />
       </Pressable>
 
-      <Modal visible={entryTypeModalVisible} transparent animationType="fade">
+      <Modal
+        visible={entryTypeModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setEntryTypeModalVisible(false)}
+      >
         <View style={s.modalOverlay}>
           <View style={s.typeModalCard}>
             <View style={s.modalHeader}>
               <Text style={s.modalTitle}>New entry</Text>
-              <Pressable onPress={() => setEntryTypeModalVisible(false)}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close new entry type"
+                style={s.modalCloseBtn}
+                onPress={() => setEntryTypeModalVisible(false)}
+              >
                 <Ionicons name="close" size={22} color={hatchColors.text.secondary} />
               </Pressable>
             </View>
@@ -421,12 +489,22 @@ export default function TrackScreen() {
         </View>
       </Modal>
 
-      <Modal visible={entryModalVisible} transparent animationType="fade">
+      <Modal
+        visible={entryModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setEntryModalVisible(false)}
+      >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={s.modalOverlay}>
           <View style={s.modalCard}>
             <View style={s.modalHeader}>
               <Text style={s.modalTitle}>{editingEntry ? "Edit entry" : "New entry"}</Text>
-              <Pressable onPress={() => setEntryModalVisible(false)}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close entry editor"
+                style={s.modalCloseBtn}
+                onPress={() => setEntryModalVisible(false)}
+              >
                 <Ionicons name="close" size={22} color={hatchColors.text.secondary} />
               </Pressable>
             </View>
@@ -465,7 +543,7 @@ export default function TrackScreen() {
 
             <Pressable style={s.saveBtn} onPress={saveEntry}><Text style={s.saveBtnText}>{editingEntry ? "Save" : "Add entry"}</Text></Pressable>
             {editingEntry && (
-              <Pressable style={s.deleteBtn} onPress={async () => { await deleteSavingsEntry(editingEntry.id); setEntryModalVisible(false); }}>
+              <Pressable style={s.deleteBtn} onPress={() => confirmDeleteEntry(editingEntry)}>
                 <Text style={s.deleteBtnText}>Delete entry</Text>
               </Pressable>
             )}
@@ -473,12 +551,24 @@ export default function TrackScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      <Modal visible={goalModalVisible} transparent animationType="fade">
+      <Modal
+        visible={goalModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setGoalModalVisible(false)}
+      >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={s.modalOverlay}>
           <View style={s.modalCard}>
             <View style={s.modalHeader}>
               <Text style={s.modalTitle}>{editingGoal ? "Edit goal" : "New goal"}</Text>
-              <Pressable onPress={() => setGoalModalVisible(false)}><Ionicons name="close" size={22} color={hatchColors.text.secondary} /></Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close goal editor"
+                style={s.modalCloseBtn}
+                onPress={() => setGoalModalVisible(false)}
+              >
+                <Ionicons name="close" size={22} color={hatchColors.text.secondary} />
+              </Pressable>
             </View>
             <Text style={s.modalLabel}>Title</Text>
             <TextInput style={s.input} value={goalTitle} onChangeText={setGoalTitle} placeholder="Emergency fund" />
@@ -488,7 +578,7 @@ export default function TrackScreen() {
             <TextInput style={s.input} value={goalCurrent} onChangeText={(value) => setGoalCurrent(normalizeMoneyInput(value))} keyboardType="decimal-pad" placeholder="0.00" />
             <Pressable style={s.saveBtn} onPress={saveGoal}><Text style={s.saveBtnText}>Save goal</Text></Pressable>
             {editingGoal && (
-              <Pressable style={s.deleteBtn} onPress={async () => { await deleteSavingsGoal(editingGoal.id); setGoalModalVisible(false); }}>
+              <Pressable style={s.deleteBtn} onPress={() => confirmDeleteGoal(editingGoal)}>
                 <Text style={s.deleteBtnText}>Delete goal</Text>
               </Pressable>
             )}
@@ -496,12 +586,24 @@ export default function TrackScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      <Modal visible={statsVisible} transparent animationType="fade">
+      <Modal
+        visible={statsVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setStatsVisible(false)}
+      >
         <View style={s.modalOverlay}>
           <View style={s.modalCard}>
             <View style={s.modalHeader}>
               <Text style={s.modalTitle}>Simple stats</Text>
-              <Pressable onPress={() => setStatsVisible(false)}><Ionicons name="close" size={22} color={hatchColors.text.secondary} /></Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close simple stats"
+                style={s.modalCloseBtn}
+                onPress={() => setStatsVisible(false)}
+              >
+                <Ionicons name="close" size={22} color={hatchColors.text.secondary} />
+              </Pressable>
             </View>
 
             <StatBar label="Spent from income" value={`${expenseRatio}%`} percent={expenseRatio} />
@@ -540,6 +642,13 @@ const s = StyleSheet.create({
   title: { fontSize: 30, fontWeight: "800", color: hatchColors.text.primary },
   subtitle: { marginTop: 4, fontSize: 13, color: hatchColors.text.secondary },
   statsBtn: { width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: hatchColors.primary.muted },
+  modalCloseBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 
   heroCard: { borderRadius: 20, backgroundColor: hatchColors.primary.default, padding: 16, marginBottom: 12, ...hatchShadows.md },
   heroLabel: { fontSize: 10, fontWeight: "800", color: "rgba(255,255,255,0.75)", letterSpacing: 0.8 },

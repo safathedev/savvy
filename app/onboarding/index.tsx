@@ -1,14 +1,14 @@
-// Savvy Onboarding — Minimalist White Design
+// Savvy Onboarding - Minimalist White Design
 
-import React, { useState, useCallback } from "react";
+import React, { useCallback, useState } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
   KeyboardAvoidingView,
   Platform,
-  TextInput,
   Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import { useRouter } from "expo-router";
@@ -18,7 +18,7 @@ import * as Haptics from "expo-haptics";
 import { useApp, UserProfile } from "@/lib/app-context";
 import { defaultCurrency } from "@/constants/currencies";
 import { requestNotificationPermissions, scheduleDailyReminder } from "@/lib/notifications";
-import { hatchColors, hatchSpacing, hatchTypography, hatchRadius } from "@/constants/theme";
+import { hatchColors, hatchRadius, hatchSpacing, hatchTypography } from "@/constants/theme";
 
 type Goal = "save" | "invest" | "both";
 
@@ -106,7 +106,6 @@ export default function Onboarding() {
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.keyboardView}>
-          {/* Back Button */}
           {step > 0 && (
             <Animated.View entering={FadeIn.duration(200)} style={styles.backButton}>
               <Pressable onPress={handleBack} style={styles.backButtonInner}>
@@ -115,12 +114,19 @@ export default function Onboarding() {
               </Pressable>
             </Animated.View>
           )}
-          {/* Content */}
+
           <View style={styles.content}>{renderStep()}</View>
-          {/* Progress Dots */}
+
           <View style={styles.progressContainer}>
             {Array.from({ length: totalSteps }).map((_, i) => (
-              <View key={i} style={[styles.progressDot, i === step && styles.progressDotActive, i < step && styles.progressDotCompleted]} />
+              <View
+                key={i}
+                style={[
+                  styles.progressDot,
+                  i === step && styles.progressDotActive,
+                  i < step && styles.progressDotCompleted,
+                ]}
+              />
             ))}
           </View>
         </KeyboardAvoidingView>
@@ -129,12 +135,11 @@ export default function Onboarding() {
   );
 }
 
-// Step 1: Welcome
 function WelcomeStep({ onNext }: { onNext: () => void }) {
   return (
     <Animated.View entering={FadeInDown.duration(500)} style={styles.stepContainer}>
       <View style={styles.illustrationContainer}>
-        <Text style={styles.illustrationEmoji}>🌱</Text>
+        <Ionicons name="leaf-outline" size={50} color={hatchColors.primary.default} />
       </View>
       <Text style={styles.title}>Welcome to Savvy</Text>
       <Text style={styles.subtitle}>Your personal guide to{"\n"}smarter money habits</Text>
@@ -145,7 +150,6 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
   );
 }
 
-// Step 2: Name
 function NameStep({ value, onChange, onNext }: { value: string; onChange: (v: string) => void; onNext: () => void }) {
   return (
     <Animated.View entering={FadeInDown.duration(400)} style={styles.stepContainer}>
@@ -173,12 +177,11 @@ function NameStep({ value, onChange, onNext }: { value: string; onChange: (v: st
   );
 }
 
-// Step 3: Goal Selection
 function GoalStep({ value, onChange, onNext }: { value: Goal; onChange: (g: Goal) => void; onNext: () => void }) {
   const goals: { id: Goal; label: string; icon: string; description: string }[] = [
-    { id: "save", label: "Save Money", icon: "💰", description: "Learn practical tips to save daily" },
-    { id: "invest", label: "Learn Investing", icon: "📈", description: "Understand the basics of investing" },
-    { id: "both", label: "Both", icon: "🚀", description: "The complete financial journey" },
+    { id: "save", label: "Save Money", icon: "wallet-outline", description: "Learn practical tips to save daily" },
+    { id: "invest", label: "Learn Investing", icon: "trending-up-outline", description: "Understand the basics of investing" },
+    { id: "both", label: "Both", icon: "sparkles-outline", description: "The complete financial journey" },
   ];
 
   return (
@@ -187,9 +190,20 @@ function GoalStep({ value, onChange, onNext }: { value: Goal; onChange: (g: Goal
       <Text style={styles.subtitle}>Choose what matters most to you right now</Text>
       <View style={styles.goalsContainer}>
         {goals.map((goal) => (
-          <Pressable key={goal.id} onPress={() => { Haptics.selectionAsync(); onChange(goal.id); }} style={[styles.goalCard, value === goal.id && styles.goalCardSelected]}>
+          <Pressable
+            key={goal.id}
+            onPress={() => {
+              Haptics.selectionAsync();
+              onChange(goal.id);
+            }}
+            style={[styles.goalCard, value === goal.id && styles.goalCardSelected]}
+          >
             <View style={[styles.goalIcon, value === goal.id && styles.goalIconSelected]}>
-              <Text style={styles.goalEmoji}>{goal.icon}</Text>
+              <Ionicons
+                name={goal.icon as any}
+                size={24}
+                color={value === goal.id ? hatchColors.text.inverse : hatchColors.primary.default}
+              />
             </View>
             <View style={styles.goalContent}>
               <Text style={styles.goalLabel}>{goal.label}</Text>
@@ -208,19 +222,18 @@ function GoalStep({ value, onChange, onNext }: { value: Goal; onChange: (g: Goal
   );
 }
 
-// Step 4: Ready
 function ReadyStep({ name, onComplete }: { name: string; onComplete: () => void }) {
   return (
     <Animated.View entering={FadeInDown.duration(500)} style={styles.stepContainer}>
       <View style={styles.celebrationContainer}>
-        <Text style={styles.celebrationEmoji}>🎉</Text>
+        <Ionicons name="checkmark-done-circle-outline" size={44} color={hatchColors.primary.default} />
       </View>
       <Text style={styles.title}>You're all set, {name}!</Text>
       <Text style={styles.subtitle}>Your financial freedom journey starts now.{"\n"}Let's make every penny count.</Text>
       <View style={styles.featuresCard}>
-        <FeatureItem icon="💡" text="16 money-saving tips" />
-        <FeatureItem icon="📚" text="8 investing lessons" />
-        <FeatureItem icon="🔥" text="Daily streak tracking" />
+        <FeatureItem icon="bulb-outline" text="16 money-saving tips" />
+        <FeatureItem icon="school-outline" text="24 academy lessons" />
+        <FeatureItem icon="flame-outline" text="Daily streak tracking" />
       </View>
       <Pressable onPress={onComplete} style={({ pressed }) => [styles.primaryButton, pressed && styles.buttonPressed]}>
         <Text style={styles.buttonText}>Start Exploring</Text>
@@ -232,7 +245,7 @@ function ReadyStep({ name, onComplete }: { name: string; onComplete: () => void 
 function FeatureItem({ icon, text }: { icon: string; text: string }) {
   return (
     <View style={styles.featureItem}>
-      <Text style={styles.featureIcon}>{icon}</Text>
+      <Ionicons name={icon as any} size={20} color={hatchColors.primary.default} style={styles.featureIcon} />
       <Text style={styles.featureText}>{text}</Text>
     </View>
   );
@@ -251,34 +264,112 @@ const styles = StyleSheet.create({
   progressDotActive: { width: 24, backgroundColor: hatchColors.primary.default },
   progressDotCompleted: { backgroundColor: hatchColors.primary.light },
   stepContainer: { alignItems: "center" },
-  illustrationContainer: { width: 120, height: 120, borderRadius: 60, backgroundColor: hatchColors.primary.muted, alignItems: "center", justifyContent: "center", marginBottom: 32 },
-  illustrationEmoji: { fontSize: 56 },
-  title: { fontSize: hatchTypography.fontSize["2xl"], fontWeight: "700", color: hatchColors.text.primary, textAlign: "center", marginBottom: 8 },
-  subtitle: { fontSize: hatchTypography.fontSize.base, color: hatchColors.text.secondary, textAlign: "center", lineHeight: 24, marginBottom: 32 },
-  primaryButton: { width: "100%", backgroundColor: hatchColors.primary.default, borderRadius: hatchRadius.full, paddingVertical: 16, alignItems: "center" },
+  illustrationContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: hatchColors.primary.muted,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 32,
+  },
+  title: {
+    fontSize: hatchTypography.fontSize["2xl"],
+    fontWeight: "700",
+    color: hatchColors.text.primary,
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: hatchTypography.fontSize.base,
+    color: hatchColors.text.secondary,
+    textAlign: "center",
+    lineHeight: 24,
+    marginBottom: 32,
+  },
+  primaryButton: {
+    width: "100%",
+    backgroundColor: hatchColors.primary.default,
+    borderRadius: hatchRadius.full,
+    paddingVertical: 16,
+    alignItems: "center",
+  },
   buttonPressed: { opacity: 0.85, transform: [{ scale: 0.98 }] },
   buttonText: { fontSize: hatchTypography.fontSize.md, fontWeight: "600", color: hatchColors.text.inverse },
   inputContainer: { width: "100%", marginBottom: 24 },
   inputLabel: { fontSize: hatchTypography.fontSize.sm, color: hatchColors.text.secondary, marginBottom: 8 },
-  textInput: { width: "100%", height: hatchSpacing.inputHeight, backgroundColor: hatchColors.background.secondary, borderRadius: hatchRadius.lg, paddingHorizontal: 16, fontSize: hatchTypography.fontSize.md, color: hatchColors.text.primary, borderWidth: 1, borderColor: hatchColors.border.default },
+  textInput: {
+    width: "100%",
+    height: hatchSpacing.inputHeight,
+    backgroundColor: hatchColors.background.secondary,
+    borderRadius: hatchRadius.lg,
+    paddingHorizontal: 16,
+    fontSize: hatchTypography.fontSize.md,
+    color: hatchColors.text.primary,
+    borderWidth: 1,
+    borderColor: hatchColors.border.default,
+  },
   skipButton: { marginTop: 16, padding: 12 },
   skipText: { fontSize: hatchTypography.fontSize.base, color: hatchColors.text.secondary, fontWeight: "500" },
   goalsContainer: { width: "100%", gap: 12, marginBottom: 32 },
-  goalCard: { flexDirection: "row", alignItems: "center", padding: 16, backgroundColor: hatchColors.background.card, borderRadius: hatchRadius.xl, borderWidth: 2, borderColor: hatchColors.border.default },
+  goalCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+    backgroundColor: hatchColors.background.card,
+    borderRadius: hatchRadius.xl,
+    borderWidth: 2,
+    borderColor: hatchColors.border.default,
+  },
   goalCardSelected: { borderColor: hatchColors.primary.default, backgroundColor: hatchColors.primary.muted },
-  goalIcon: { width: 52, height: 52, borderRadius: hatchRadius.lg, backgroundColor: hatchColors.background.cardLight, alignItems: "center", justifyContent: "center", marginRight: 12 },
+  goalIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: hatchRadius.lg,
+    backgroundColor: hatchColors.background.cardLight,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
   goalIconSelected: { backgroundColor: hatchColors.primary.default },
-  goalEmoji: { fontSize: 24 },
   goalContent: { flex: 1 },
-  goalLabel: { fontSize: hatchTypography.fontSize.md, fontWeight: "600", color: hatchColors.text.primary, marginBottom: 2 },
+  goalLabel: {
+    fontSize: hatchTypography.fontSize.md,
+    fontWeight: "600",
+    color: hatchColors.text.primary,
+    marginBottom: 2,
+  },
   goalDescription: { fontSize: hatchTypography.fontSize.sm, color: hatchColors.text.secondary },
-  radioOuter: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: hatchColors.border.default, alignItems: "center", justifyContent: "center" },
+  radioOuter: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: hatchColors.border.default,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   radioOuterSelected: { borderColor: hatchColors.primary.default, backgroundColor: hatchColors.primary.default },
   radioInner: { width: 12, height: 12, borderRadius: 6, backgroundColor: "#FFFFFF" },
-  celebrationContainer: { width: 100, height: 100, borderRadius: 50, backgroundColor: hatchColors.primary.muted, alignItems: "center", justifyContent: "center", marginBottom: 24 },
-  celebrationEmoji: { fontSize: 48 },
-  featuresCard: { width: "100%", backgroundColor: hatchColors.background.card, borderRadius: hatchRadius.xl, padding: 16, marginBottom: 32, borderWidth: 1, borderColor: hatchColors.border.default },
+  celebrationContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: hatchColors.primary.muted,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 24,
+  },
+  featuresCard: {
+    width: "100%",
+    backgroundColor: hatchColors.background.card,
+    borderRadius: hatchRadius.xl,
+    padding: 16,
+    marginBottom: 32,
+    borderWidth: 1,
+    borderColor: hatchColors.border.default,
+  },
   featureItem: { flexDirection: "row", alignItems: "center", paddingVertical: 10 },
-  featureIcon: { fontSize: 20, marginRight: 12 },
+  featureIcon: { marginRight: 12 },
   featureText: { fontSize: hatchTypography.fontSize.base, color: hatchColors.text.primary, fontWeight: "500" },
 });

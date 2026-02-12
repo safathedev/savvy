@@ -4,7 +4,6 @@ import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
 import { Platform } from "react-native";
 
-// Configure notification behavior
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -15,9 +14,6 @@ Notifications.setNotificationHandler({
   }),
 });
 
-/**
- * Request notification permissions
- */
 export async function requestNotificationPermissions(): Promise<boolean> {
   if (!Device.isDevice) {
     console.log("Notifications only work on physical devices");
@@ -33,11 +29,9 @@ export async function requestNotificationPermissions(): Promise<boolean> {
     });
   }
 
-  const { status: existingStatus } =
-    await Notifications.getPermissionsAsync();
+  const { status: existingStatus } = await Notifications.getPermissionsAsync();
 
   let finalStatus = existingStatus;
-
   if (existingStatus !== "granted") {
     const { status } = await Notifications.requestPermissionsAsync();
     finalStatus = status;
@@ -46,20 +40,16 @@ export async function requestNotificationPermissions(): Promise<boolean> {
   return finalStatus === "granted";
 }
 
-/**
- * Schedule daily tip reminder
- */
 export async function scheduleDailyReminder(
   hour: number = 9,
   minute: number = 0
 ): Promise<string | null> {
   try {
-    // Cancel existing daily reminders first
     await cancelDailyReminder();
 
     const id = await Notifications.scheduleNotificationAsync({
       content: {
-        title: "Good morning! ☀️",
+        title: "Good morning!",
         body: "Your daily saving tip is ready. Open Savvy to learn more!",
         data: { type: "daily_tip" },
       },
@@ -77,9 +67,6 @@ export async function scheduleDailyReminder(
   }
 }
 
-/**
- * Schedule streak reminder (evening)
- */
 export async function scheduleStreakReminder(
   streak: number,
   hour: number = 20,
@@ -90,7 +77,7 @@ export async function scheduleStreakReminder(
   try {
     const id = await Notifications.scheduleNotificationAsync({
       content: {
-        title: `Don't break your ${streak} day streak! 🔥`,
+        title: `Don't break your ${streak}-day streak!`,
         body: "Open Savvy to keep your streak going!",
         data: { type: "streak_reminder" },
       },
@@ -108,46 +95,29 @@ export async function scheduleStreakReminder(
   }
 }
 
-/**
- * Cancel daily reminder
- */
 export async function cancelDailyReminder(): Promise<void> {
   const scheduled = await Notifications.getAllScheduledNotificationsAsync();
   for (const notification of scheduled) {
     if (notification.content.data?.type === "daily_tip") {
-      await Notifications.cancelScheduledNotificationAsync(
-        notification.identifier
-      );
+      await Notifications.cancelScheduledNotificationAsync(notification.identifier);
     }
   }
 }
 
-/**
- * Cancel all scheduled notifications
- */
 export async function cancelAllNotifications(): Promise<void> {
   await Notifications.cancelAllScheduledNotificationsAsync();
 }
 
-/**
- * Get all scheduled notifications
- */
 export async function getScheduledNotifications() {
   return await Notifications.getAllScheduledNotificationsAsync();
 }
 
-/**
- * Add notification response listener
- */
 export function addNotificationResponseListener(
   callback: (response: Notifications.NotificationResponse) => void
 ) {
   return Notifications.addNotificationResponseReceivedListener(callback);
 }
 
-/**
- * Add notification received listener
- */
 export function addNotificationReceivedListener(
   callback: (notification: Notifications.Notification) => void
 ) {

@@ -1,4 +1,4 @@
-// Savvy Tip Detail — Minimalist White Design
+// Savvy Tip Detail - Minimalist White Design
 import React from "react";
 import { View, Text, ScrollView, StyleSheet, Pressable } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -10,6 +10,37 @@ import { getTipById } from "@/data/savings-tips";
 import { useApp } from "@/lib/app-context";
 import { shareTip } from "@/lib/sharing";
 import { hatchColors, hatchSpacing, hatchTypography, hatchRadius } from "@/constants/theme";
+
+function cleanDetailLine(line: string): string {
+  return line
+    .replace(/^\*\*(.*?)\*\*:?$/, "$1")
+    .replace(/^\d+\.\s+/, "")
+    .replace(/^[-*\u2022]\s+/, "")
+    .trim();
+}
+
+function parseTipDetails(details: string): { paragraphs: string[]; bullets: string[] } {
+  const lines = details
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const paragraphs: string[] = [];
+  const bullets: string[] = [];
+
+  lines.forEach((line) => {
+    if (/^(\d+\.\s+|[-*\u2022]\s+)/.test(line)) {
+      const cleaned = cleanDetailLine(line);
+      if (cleaned) bullets.push(cleaned);
+      return;
+    }
+
+    const cleaned = cleanDetailLine(line);
+    if (cleaned) paragraphs.push(cleaned);
+  });
+
+  return { paragraphs, bullets };
+}
 
 export default function TipDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -33,6 +64,9 @@ export default function TipDetailScreen() {
   }
 
   const isApplied = isTipApplied(tip.id);
+  const parsed = parseTipDetails(tip.details || "");
+  const actionSteps =
+    parsed.bullets.length > 0 ? parsed.bullets : [tip.description].filter(Boolean);
 
   const handleApply = async () => {
     if (isApplied) return;
@@ -82,12 +116,24 @@ export default function TipDetailScreen() {
           </View>
         </Animated.View>
 
-        {/* Steps */}
+        {/* Details */}
         <Animated.View entering={FadeInDown.delay(200).duration(400)}>
+          <Text style={styles.sectionTitleOutside}>Details</Text>
+          <View style={styles.card}>
+            {(parsed.paragraphs.length > 0 ? parsed.paragraphs : [tip.details]).map((text, index) => (
+              <Text key={index} style={[styles.description, index > 0 && styles.detailParagraph]}>
+                {text}
+              </Text>
+            ))}
+          </View>
+        </Animated.View>
+
+        {/* Action Steps */}
+        <Animated.View entering={FadeInDown.delay(250).duration(400)}>
           <Text style={styles.sectionTitleOutside}>How to Apply</Text>
           <View style={styles.stepsContainer}>
-            {tip.steps.map((step, index) => (
-              <View key={index} style={styles.stepItem}>
+            {actionSteps.map((step, index) => (
+              <View key={`${step}-${index}`} style={styles.stepItem}>
                 <View style={styles.stepNumber}>
                   <Text style={styles.stepNumberText}>{index + 1}</Text>
                 </View>
@@ -98,31 +144,6 @@ export default function TipDetailScreen() {
             ))}
           </View>
         </Animated.View>
-
-        {/* Pro Tips */}
-        {tip.proTips && tip.proTips.length > 0 && (
-          <Animated.View entering={FadeInDown.delay(300).duration(400)}>
-            <Text style={styles.sectionTitleOutside}>Pro Tips</Text>
-            <View style={styles.proTipsCard}>
-              {tip.proTips.map((proTip, index) => (
-                <View key={index} style={styles.proTipItem}>
-                  <Ionicons name="star" size={16} color={hatchColors.accent.amber} />
-                  <Text style={styles.proTipText}>{proTip}</Text>
-                </View>
-              ))}
-            </View>
-          </Animated.View>
-        )}
-
-        {/* Sources */}
-        {tip.source && (
-          <Animated.View entering={FadeInDown.delay(400).duration(400)}>
-            <View style={styles.sourceCard}>
-              <Ionicons name="information-circle-outline" size={18} color={hatchColors.text.tertiary} />
-              <Text style={styles.sourceText}>{tip.source}</Text>
-            </View>
-          </Animated.View>
-        )}
       </ScrollView>
 
       {/* Bottom Action */}
@@ -163,6 +184,7 @@ const styles = StyleSheet.create({
   scrollContent: { padding: hatchSpacing.screenPadding, gap: 16 },
   card: { backgroundColor: hatchColors.background.card, borderRadius: hatchRadius.xl, padding: 20, borderWidth: 1, borderColor: hatchColors.border.default },
   sectionTitle: { fontSize: hatchTypography.fontSize.md, fontWeight: "700", color: hatchColors.text.primary, marginBottom: 12 },
+  detailParagraph: { marginTop: 10 },
   sectionTitleOutside: { fontSize: hatchTypography.fontSize.xs, fontWeight: "600", color: hatchColors.text.secondary, letterSpacing: 1, marginBottom: 12 },
   description: { fontSize: hatchTypography.fontSize.base, color: hatchColors.text.secondary, lineHeight: 24 },
   stepsContainer: { gap: 12 },
@@ -171,11 +193,6 @@ const styles = StyleSheet.create({
   stepNumberText: { fontSize: hatchTypography.fontSize.md, fontWeight: "700", color: hatchColors.primary.default },
   stepContent: { flex: 1 },
   stepText: { fontSize: hatchTypography.fontSize.base, color: hatchColors.text.secondary, lineHeight: 22 },
-  proTipsCard: { backgroundColor: hatchColors.background.card, borderRadius: hatchRadius.xl, padding: 16, gap: 12, borderWidth: 1, borderColor: hatchColors.border.default },
-  proTipItem: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
-  proTipText: { flex: 1, fontSize: hatchTypography.fontSize.base, color: hatchColors.text.secondary, lineHeight: 22 },
-  sourceCard: { flexDirection: "row", alignItems: "flex-start", gap: 8, backgroundColor: hatchColors.background.card, borderRadius: hatchRadius.lg, padding: 16, borderWidth: 1, borderColor: hatchColors.border.default },
-  sourceText: { flex: 1, fontSize: hatchTypography.fontSize.sm, color: hatchColors.text.tertiary, fontStyle: "italic" },
   bottomAction: { paddingHorizontal: hatchSpacing.screenPadding, paddingTop: 16, backgroundColor: hatchColors.background.primary, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: hatchColors.border.default },
   applyButton: { borderRadius: hatchRadius.full, overflow: "hidden" },
   buttonPressed: { opacity: 0.85, transform: [{ scale: 0.98 }] },
@@ -184,3 +201,4 @@ const styles = StyleSheet.create({
   appliedButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: hatchColors.background.card, borderWidth: 2, borderColor: hatchColors.status.success, borderRadius: hatchRadius.full, paddingVertical: 16 },
   appliedText: { fontSize: hatchTypography.fontSize.md, fontWeight: "700", color: hatchColors.status.success },
 });
+

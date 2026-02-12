@@ -1,4 +1,5 @@
-﻿import { CalendarCategoryConfig } from "@/constants/calendar-types";
+import { CalendarCategoryConfig } from "@/constants/calendar-types";
+import { CurrencyCode, formatCurrency } from "@/constants/currencies";
 import { hatchColors, hatchShadows } from "@/constants/theme";
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
@@ -10,9 +11,15 @@ interface AgendaViewProps {
   selectedDate: Date;
   onEditEvent: (event: any) => void;
   resolveCategory: (type?: string, color?: string) => CalendarCategoryConfig;
+  currencyCode: CurrencyCode;
 }
 
-export function AgendaView({ events, onEditEvent, resolveCategory }: AgendaViewProps) {
+export function AgendaView({
+  events,
+  onEditEvent,
+  resolveCategory,
+  currencyCode,
+}: AgendaViewProps) {
   const sortedEvents = [...events].sort((a, b) => {
     if (a.allDay && !b.allDay) return -1;
     if (!a.allDay && b.allDay) return 1;
@@ -55,9 +62,9 @@ export function AgendaView({ events, onEditEvent, resolveCategory }: AgendaViewP
                     <Ionicons name={categoryConfig.icon as any} size={10} color={categoryConfig.color} />
                     <Text style={[s.categoryText, { color: categoryConfig.color }]} numberOfLines={1}>{categoryConfig.label}</Text>
                   </View>
-                  {event.amount > 0 && (
-                    <Text style={s.amountText}>{event.amount.toFixed(2)}</Text>
-                  )}
+                  {event.amount > 0 ? (
+                    <Text style={s.amountText}>{formatCurrency(event.amount, currencyCode)}</Text>
+                  ) : null}
                 </View>
               </View>
             </Pressable>

@@ -500,10 +500,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
           ? undefined
           : clampAmount(Number(profile.monthlyIncome) || 0),
     };
+    const syncedNotificationSettings: NotificationSettings = {
+      enabled: Boolean(normalizedProfile.notificationsEnabled),
+      reminderTime:
+        typeof normalizedProfile.reminderTime === "string" &&
+        normalizedProfile.reminderTime.trim()
+          ? normalizedProfile.reminderTime
+          : defaultNotificationSettings.reminderTime,
+    };
     setUserProfileState(normalizedProfile);
+    setNotificationSettingsState(syncedNotificationSettings);
     await AsyncStorage.setItem(
       STORAGE_KEYS.USER_PROFILE,
       JSON.stringify(normalizedProfile)
+    );
+    await AsyncStorage.setItem(
+      STORAGE_KEYS.NOTIFICATION_SETTINGS,
+      JSON.stringify(syncedNotificationSettings)
     );
   };
 

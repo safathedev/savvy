@@ -1,5 +1,11 @@
 ﻿// Utility functions for Savvy App
 
+import {
+  currencies,
+  defaultCurrency,
+  formatCurrency as formatCurrencyWithLocale,
+  type CurrencyCode,
+} from "@/constants/currencies";
 import { type ClassValue, clsx } from "clsx";
 
 /**
@@ -103,12 +109,6 @@ export function getDayIndex(date: Date = new Date()): number {
  * Format currency with symbol
  */
 export function formatCurrency(amount: number, currency: string = "GBP"): string {
-  const symbols: Record<string, string> = {
-    GBP: "\u00A3",
-    USD: "$",
-    EUR: "\u20AC",
-  };
-
-  const symbol = symbols[currency] || "\u00A3";
-  return `${symbol}${amount.toFixed(2)}`;
+  const code = currency in currencies ? (currency as CurrencyCode) : defaultCurrency;
+  return formatCurrencyWithLocale(amount, code);
 }
