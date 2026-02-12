@@ -26,6 +26,7 @@
         "backgroundColor": "#6B9F6E"
       },
       "package": "com.rmb.savvy",
+      "versionCode": 2,
       "edgeToEdgeEnabled": true
     },
     "web": {
