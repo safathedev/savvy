@@ -150,7 +150,7 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
     <Animated.View entering={FadeInDown.duration(500)} style={styles.stepContainer}>
       <View style={styles.appIconContainer}>
         <Image
-          source={require("@/assets/images/icon.png")}
+          source={require("@/assets/images/savvy_app_icon.png")}
           style={styles.appIcon}
           resizeMode="cover"
         />
