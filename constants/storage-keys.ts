@@ -14,6 +14,7 @@ export const STORAGE_KEYS = {
   CALENDAR_EVENTS: "@savvy_calendar_events",
   CALENDAR_CUSTOM_CATEGORIES: "@savvy_calendar_custom_categories",
   SAVINGS_GOALS: "@savvy_savings_goals",
+  FRESH_RESET_MARKER: "@savvy_fresh_reset_v4",
 } as const;
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS];

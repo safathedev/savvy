@@ -49,6 +49,7 @@ export interface SavingsGoal {
   currentAmount: number;
   icon: string;
   color: string;
+  isFavorite?: boolean;
 }
 
 export interface StreakData {
@@ -103,6 +104,7 @@ interface AppState {
   getMonthlySavings: () => number;
   getWeeklySavings: () => number;
   getReservedExpenses: () => number;
+  getTotalAllocatedToGoals: () => number;
   getAvailableAfterReserved: () => number;
   getUpcomingCostEvents: () => CalendarEvent[];
 
@@ -235,6 +237,7 @@ function normalizeSavingsGoal(goal: any): SavingsGoal {
     currentAmount: clampAmount(Number(goal?.currentAmount) || 0),
     icon: typeof goal?.icon === "string" ? goal.icon : "trophy",
     color: typeof goal?.color === "string" ? goal.color : "#10B981",
+    isFavorite: Boolean(goal?.isFavorite),
   };
 }
 
@@ -358,6 +361,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const loadAllData = async () => {
     try {
+      // One-time full reset to clear all old dev/test data
+      const freshResetDone = await AsyncStorage.getItem(STORAGE_KEYS.FRESH_RESET_MARKER);
+      if (!freshResetDone) {
+        await AsyncStorage.clear();
+        await AsyncStorage.setItem(STORAGE_KEYS.FRESH_RESET_MARKER, "done");
+        setIsLoading(false);
+        return;
+      }
+
       const [
         profileData,
         entriesData,
@@ -617,9 +629,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return getUpcomingCostEvents().reduce((sum, event) => sum + (event.amount || 0), 0);
   }, [getUpcomingCostEvents]);
 
+  const getTotalAllocatedToGoals = useCallback(() => {
+    return savingsGoals.reduce((sum, goal) => sum + goal.currentAmount, 0);
+  }, [savingsGoals]);
+
   const getAvailableAfterReserved = useCallback(() => {
-    return getTotalSavings() - getReservedExpenses();
-  }, [getTotalSavings, getReservedExpenses]);
+    return getTotalSavings() - getReservedExpenses() - getTotalAllocatedToGoals();
+  }, [getTotalSavings, getReservedExpenses, getTotalAllocatedToGoals]);
 
   const addCustomCalendarCategory = async (category: { label: string; color: string }) => {
     const normalized = normalizeCustomCalendarCategory(category);
@@ -684,16 +700,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Savings Goals
   const addSavingsGoal = async (goal: Omit<SavingsGoal, "id">) => {
     const newGoal: SavingsGoal = normalizeSavingsGoal({ ...goal, id: generateId() });
-    const updated = [...savingsGoals, newGoal];
+    
+    // If new goal is favorite, remove favorite from all existing goals
+    let updated: SavingsGoal[];
+    if (newGoal.isFavorite) {
+      updated = [
+        ...savingsGoals.map(g => ({ ...g, isFavorite: false })),
+        newGoal
+      ];
+    } else {
+      updated = [...savingsGoals, newGoal];
+    }
+    
     setSavingsGoals(updated);
     await AsyncStorage.setItem(STORAGE_KEYS.SAVINGS_GOALS, JSON.stringify(updated));
   };
 
   const updateSavingsGoal = async (goal: SavingsGoal) => {
     const normalized = normalizeSavingsGoal(goal);
-    const updated = savingsGoals.map((currentGoal) =>
-      currentGoal.id === normalized.id ? normalized : currentGoal
-    );
+    
+    // If this goal is being set as favorite, remove favorite from all other goals
+    let updated: SavingsGoal[];
+    if (normalized.isFavorite) {
+      updated = savingsGoals.map((currentGoal) =>
+        currentGoal.id === normalized.id 
+          ? normalized 
+          : { ...currentGoal, isFavorite: false }
+      );
+    } else {
+      updated = savingsGoals.map((currentGoal) =>
+        currentGoal.id === normalized.id ? normalized : currentGoal
+      );
+    }
+    
     setSavingsGoals(updated);
     await AsyncStorage.setItem(STORAGE_KEYS.SAVINGS_GOALS, JSON.stringify(updated));
   };
@@ -811,6 +850,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         getMonthlySavings,
         getWeeklySavings,
         getReservedExpenses,
+        getTotalAllocatedToGoals,
         getAvailableAfterReserved,
         getUpcomingCostEvents,
         completedLessons,

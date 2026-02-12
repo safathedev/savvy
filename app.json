@@ -9,9 +9,9 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/images/splash-icon.png",
+      "image": "./assets/images/splash-screen.png",
       "resizeMode": "contain",
-      "backgroundColor": "#22C55E"
+      "backgroundColor": "#6B9F6E"
     },
     "ios": {
       "supportsTablet": true,
@@ -23,7 +23,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#22C55E"
+        "backgroundColor": "#6B9F6E"
       },
       "package": "com.rmb.savvy",
       "edgeToEdgeEnabled": true
@@ -39,7 +39,7 @@
         "expo-notifications",
         {
           "icon": "./assets/images/icon.png",
-          "color": "#22C55E"
+          "color": "#6B9F6E"
         }
       ],
       "@react-native-community/datetimepicker"

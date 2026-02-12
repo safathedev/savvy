@@ -1,4 +1,4 @@
-﻿import { Ionicons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import React, { useMemo, useState } from "react";
@@ -72,18 +72,20 @@ export default function AcademyScreen() {
 
   return (
     <View style={s.root}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{
-          paddingTop: insets.top + 16,
-          paddingBottom: insets.bottom + 40,
-          paddingHorizontal: 20,
-        }}
-      >
+      <View style={[s.stickyHeader, { paddingTop: insets.top + 16, paddingHorizontal: 20 }]}>
         <Animated.View entering={FadeInDown.duration(350)}>
           <Text style={s.title}>Academy</Text>
           <Text style={s.subtitle}>Calm, practical lessons for real-life money decisions.</Text>
         </Animated.View>
+      </View>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{
+          paddingTop: 16,
+          paddingBottom: insets.bottom + 40,
+          paddingHorizontal: 20,
+        }}
+      >
 
         <Animated.View entering={FadeInDown.delay(50).duration(350)} style={s.progressCard}>
           <View style={s.progressRow}>
@@ -214,6 +216,7 @@ const s = StyleSheet.create({
     flex: 1,
     backgroundColor: hatchColors.background.primary,
   },
+  stickyHeader: { backgroundColor: hatchColors.background.primary, paddingBottom: 14, zIndex: 10 },
   title: {
     fontSize: 30,
     fontWeight: "800",

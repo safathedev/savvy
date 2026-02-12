@@ -1,8 +1,8 @@
-﻿import { Ionicons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import React, { useMemo } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -52,6 +52,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const streak = useStreak();
+  const [recurringModalVisible, setRecurringModalVisible] = React.useState(false);
 
   const {
     userProfile,
@@ -60,7 +61,9 @@ export default function HomeScreen() {
     savingsGoals,
     getWeeklySavings,
     getReservedExpenses,
+    getTotalAllocatedToGoals,
     getAvailableAfterReserved,
+    getUpcomingCostEvents,
   } = useApp();
 
   const name = userProfile?.name || "there";
@@ -74,7 +77,13 @@ export default function HomeScreen() {
 
   const weeklyBalance = getWeeklySavings();
   const plannedExpenses = getReservedExpenses();
+  const allocatedToGoals = getTotalAllocatedToGoals();
   const availableAfterPlanned = getAvailableAfterReserved();
+  const upcomingEvents = getUpcomingCostEvents();
+  const hasRecurringCosts = useMemo(
+    () => upcomingEvents.some((event) => event.recurrence && event.recurrence !== "none"),
+    [upcomingEvents]
+  );
   const affirmation = MOM_AFFIRMATIONS[new Date().getDate() % MOM_AFFIRMATIONS.length];
   const goalsPreview = useMemo(
     () =>
@@ -95,17 +104,7 @@ export default function HomeScreen() {
 
   return (
     <View style={s.root}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        bounces={false}
-        alwaysBounceVertical={false}
-        contentContainerStyle={{
-          paddingTop: insets.top + 14,
-          paddingBottom: insets.bottom + 24,
-          paddingHorizontal: 20,
-          flexGrow: 1,
-        }}
-      >
+      <View style={[s.stickyHeader, { paddingTop: insets.top + 14, paddingHorizontal: 20 }]}>
         <Animated.View entering={FadeInDown.duration(300)} style={s.headerRow}>
           <View>
             <Text style={s.greeting}>{getGreeting()}, {name}</Text>
@@ -115,6 +114,18 @@ export default function HomeScreen() {
             <Text style={s.avatarText}>{name[0]?.toUpperCase() || "U"}</Text>
           </Pressable>
         </Animated.View>
+      </View>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        bounces={false}
+        alwaysBounceVertical={false}
+        contentContainerStyle={{
+          paddingTop: 14,
+          paddingBottom: insets.bottom + 24,
+          paddingHorizontal: 20,
+          flexGrow: 1,
+        }}
+      >
 
         <Animated.View entering={FadeInDown.delay(50).duration(320)} style={s.affirmationCard}>
           <View style={s.affirmationTopRow}>
@@ -156,17 +167,39 @@ export default function HomeScreen() {
           <Pressable onPress={() => handleNavigate("/(tabs)/track")}>
             {({ pressed }) => (
               <View style={[s.financeCard, pressed && s.pressed]}>
-                <Text style={s.financeLabel}>WEEKLY SNAPSHOT</Text>
-                <Text style={s.financeValue}>{formatCurrency(weeklyBalance, currency)}</Text>
+                <View style={s.financeLabelRow}>
+                  <Text style={s.financeLabel}>WEEKLY SNAPSHOT</Text>
+                  {hasRecurringCosts && (
+                    <Pressable
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setRecurringModalVisible(true);
+                      }}
+                      style={s.recurringBadge}
+                    >
+                      <Ionicons name="repeat" size={10} color={hatchColors.text.inverse} />
+                      <Text style={s.recurringBadgeText}>RECURRING</Text>
+                    </Pressable>
+                  )}
+                </View>
+                <View style={{ marginTop: 6 }}>
+                  <Text style={s.financeMiniLabel}>Available now</Text>
+                  <Text style={s.financeValue}>{formatCurrency(availableAfterPlanned, currency)}</Text>
+                </View>
                 <View style={s.financeGrid}>
-                  <View>
+                  <View style={{ width: "48%" }}>
                     <Text style={s.financeMiniLabel}>Planned expenses</Text>
                     <Text style={s.financeMiniValue}>{formatCurrency(plannedExpenses, currency)}</Text>
                   </View>
-                  <View>
-                    <Text style={s.financeMiniLabel}>After planned</Text>
-                    <Text style={s.financeMiniValue}>{formatCurrency(availableAfterPlanned, currency)}</Text>
+                  <View style={{ width: "48%" }}>
+                    <Text style={s.financeMiniLabel}>In goals</Text>
+                    <Text style={s.financeMiniValue}>{formatCurrency(allocatedToGoals, currency)}</Text>
                   </View>
+                </View>
+                <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.2)" }}>
+                  <Text style={s.financeMiniLabel}>Net Balance</Text>
+                  <Text style={[s.financeMiniValue, { fontSize: 18, fontWeight: "900" }]}>{formatCurrency(weeklyBalance, currency)}</Text>
                 </View>
               </View>
             )}
@@ -267,13 +300,77 @@ export default function HomeScreen() {
         </Animated.View>
 
       </ScrollView>
+
+      <Modal
+        visible={recurringModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRecurringModalVisible(false)}
+      >
+        <View style={s.modalOverlay}>
+          <View style={s.modalCard}>
+            <View style={s.modalHeader}>
+              <Text style={s.modalTitle}>Recurring costs</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close recurring costs"
+                style={s.modalCloseBtn}
+                onPress={() => setRecurringModalVisible(false)}
+              >
+                <Ionicons name="close" size={22} color={hatchColors.text.secondary} />
+              </Pressable>
+            </View>
+
+            <ScrollView style={{ maxHeight: 400 }} showsVerticalScrollIndicator={false}>
+              {upcomingEvents
+                .filter((event) => event.recurrence && event.recurrence !== "none")
+                .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+                .map((event, index) => {
+                  const eventDate = new Date(event.date);
+                  const dateStr = eventDate.toLocaleDateString("en-US", { 
+                    weekday: "short", 
+                    month: "short", 
+                    day: "numeric" 
+                  });
+                  
+                  return (
+                    <View key={`${event.id}-${index}`} style={s.recurringEventCard}>
+                      <View style={s.recurringEventHeader}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={s.recurringEventTitle}>{event.title}</Text>
+                          <Text style={s.recurringEventDate}>{dateStr}</Text>
+                        </View>
+                        <View style={s.recurringEventBadge}>
+                          <Ionicons name="repeat" size={12} color={hatchColors.primary.default} />
+                          <Text style={s.recurringEventBadgeText}>
+                            {event.recurrence}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={s.recurringEventAmount}>
+                        {formatCurrency(event.amount || 0, currency)}
+                      </Text>
+                    </View>
+                  );
+                })}
+              
+              {upcomingEvents.filter((event) => event.recurrence && event.recurrence !== "none").length === 0 && (
+                <View style={s.recurringEmptyState}>
+                  <Text style={s.recurringEmptyText}>No recurring costs found</Text>
+                </View>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: hatchColors.background.primary },
-  headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },
+  stickyHeader: { backgroundColor: hatchColors.background.primary, paddingBottom: 14, zIndex: 10 },
+  headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   greeting: { fontSize: 23, fontWeight: "800", color: hatchColors.text.primary },
   subGreeting: { marginTop: 4, fontSize: 13, color: hatchColors.text.secondary },
   avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: hatchColors.primary.default, alignItems: "center", justifyContent: "center" },
@@ -372,11 +469,88 @@ const s = StyleSheet.create({
     marginBottom: 14,
     ...hatchShadows.md,
   },
+  financeLabelRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   financeLabel: { fontSize: 10, fontWeight: "800", color: "rgba(255,255,255,0.75)", letterSpacing: 0.8 },
+  recurringBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  recurringBadgeText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#FFFFFF",
+    letterSpacing: 0.5,
+  },
   financeValue: { marginTop: 4, fontSize: 30, fontWeight: "800", color: "#FFFFFF" },
   financeGrid: { marginTop: 10, flexDirection: "row", justifyContent: "space-between" },
   financeMiniLabel: { fontSize: 11, fontWeight: "700", color: "rgba(255,255,255,0.8)" },
   financeMiniValue: { marginTop: 2, fontSize: 14, fontWeight: "800", color: "#FFFFFF" },
 
   pressed: { opacity: 0.93, transform: [{ scale: 0.99 }] },
+
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)", justifyContent: "center", alignItems: "center", padding: 18 },
+  modalCard: { width: "100%", maxWidth: 420, maxHeight: "80%", backgroundColor: "#FFFFFF", borderRadius: 24, padding: 20, ...hatchShadows.lg },
+  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
+  modalCloseBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  modalTitle: { fontSize: 22, fontWeight: "800", color: hatchColors.text.primary },
+
+  recurringEventCard: {
+    backgroundColor: hatchColors.background.secondary,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: hatchColors.border.default,
+  },
+  recurringEventHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginBottom: 8,
+    gap: 8,
+  },
+  recurringEventTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: hatchColors.text.primary,
+    marginBottom: 2,
+  },
+  recurringEventDate: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: hatchColors.text.secondary,
+  },
+  recurringEventBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: hatchColors.primary.muted,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  recurringEventBadgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: hatchColors.primary.default,
+    textTransform: "uppercase",
+  },
+  recurringEventAmount: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: hatchColors.primary.default,
+  },
+  recurringEmptyState: {
+    padding: 24,
+    alignItems: "center",
+  },
+  recurringEmptyText: {
+    fontSize: 14,
+    color: hatchColors.text.secondary,
+  },
 });

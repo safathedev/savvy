@@ -1,11 +1,17 @@
 import { hatchRadius, hatchShadows, hatchSpacing } from "@/constants/theme";
 import { useApp } from "@/lib/app-context";
-import { PRODUCTS, purchasePackage, restorePurchases } from "@/lib/revenuecat";
+import {
+  getOfferings,
+  purchasePackage,
+  restorePurchases,
+  PRODUCTS,
+  PurchasesPackage,
+} from "@/lib/revenuecat";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -18,7 +24,7 @@ import {
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-type PlanType = "monthly" | "annual";
+const DUMMY_MODE = process.env.EXPO_PUBLIC_REVENUECAT_DUMMY !== "false";
 
 const premiumFeatures = [
   {
@@ -48,20 +54,75 @@ export default function PaywallScreen() {
   const insets = useSafeAreaInsets();
   const { setPremium } = useApp();
 
-  const [selectedPlan, setSelectedPlan] = useState<PlanType>("annual");
+  const [packages, setPackages] = useState<PurchasesPackage[]>([]);
+  const [selectedPackage, setSelectedPackage] = useState<PurchasesPackage | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingOfferings, setIsLoadingOfferings] = useState(true);
 
-  const selectedProduct = useMemo(
-    () => (selectedPlan === "annual" ? PRODUCTS.ANNUAL : PRODUCTS.MONTHLY),
-    [selectedPlan]
-  );
+  // Load offerings from RevenueCat
+  useEffect(() => {
+    loadOfferings();
+  }, []);
+
+  const loadOfferings = async () => {
+    try {
+      // In dummy mode, create mock packages
+      if (DUMMY_MODE) {
+        const mockPackages: any[] = [
+          {
+            identifier: "lifetime",
+            packageType: "LIFETIME",
+            product: {
+              identifier: "lifetime",
+              priceString: PRODUCTS.LIFETIME.price,
+              description: PRODUCTS.LIFETIME.description,
+            },
+          },
+          {
+            identifier: "yearly",
+            packageType: "ANNUAL",
+            product: {
+              identifier: "yearly",
+              priceString: PRODUCTS.ANNUAL.price,
+              description: PRODUCTS.ANNUAL.description,
+            },
+          },
+        ];
+        setPackages(mockPackages);
+        setSelectedPackage(mockPackages[0]);
+      } else {
+        const offerings = await getOfferings();
+        
+        if (offerings?.current) {
+          const availablePackages = offerings.current.availablePackages;
+          setPackages(availablePackages);
+          
+          // Auto-select lifetime package if available
+          const lifetimePackage = availablePackages.find(
+            (pkg: any) => pkg.identifier === "lifetime" || pkg.packageType === "LIFETIME"
+          );
+          setSelectedPackage(lifetimePackage || availablePackages[0] || null);
+        }
+      }
+    } catch (error) {
+      console.error("Error loading offerings:", error);
+      Alert.alert("Error", "Could not load subscription options. Please try again.");
+    } finally {
+      setIsLoadingOfferings(false);
+    }
+  };
 
   const handlePurchase = async () => {
+    if (!selectedPackage) {
+      Alert.alert("Error", "Please select a plan.");
+      return;
+    }
+
     setIsLoading(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
-      const { success, error } = await purchasePackage(selectedProduct.id);
+      const { success, error } = await purchasePackage(selectedPackage);
 
       if (!success) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -71,6 +132,7 @@ export default function PaywallScreen() {
 
       await setPremium(true);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert("Success!", "Welcome to Savvy Premium!");
       router.back();
     } catch {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -89,6 +151,7 @@ export default function PaywallScreen() {
       if (restored.success && restored.hasPremium) {
         await setPremium(true);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Alert.alert("Success!", "Your purchases have been restored.");
         router.back();
         return;
       }
@@ -104,6 +167,33 @@ export default function PaywallScreen() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Format price from package
+  const formatPrice = (pkg: PurchasesPackage): string => {
+    return pkg.product.priceString;
+  };
+
+  // Get package display name
+  const getPackageName = (pkg: PurchasesPackage): string => {
+    if (pkg.identifier === "lifetime" || pkg.packageType === "LIFETIME") {
+      return "Lifetime";
+    }
+    if (pkg.identifier === "yearly" || pkg.packageType === "ANNUAL") {
+      return "Annual";
+    }
+    return pkg.identifier;
+  };
+
+  // Get package description
+  const getPackageDescription = (pkg: PurchasesPackage): string => {
+    if (pkg.identifier === "lifetime" || pkg.packageType === "LIFETIME") {
+      return "Pay once, own forever";
+    }
+    if (pkg.identifier === "yearly" || pkg.packageType === "ANNUAL") {
+      return "Renews every year";
+    }
+    return pkg.product.description || "Premium access";
   };
 
   return (
@@ -127,21 +217,15 @@ export default function PaywallScreen() {
       <ScrollView
         contentContainerStyle={[
           s.scrollContent,
-          { paddingTop: insets.top + 56, paddingBottom: insets.bottom + 16 },
+          { paddingTop: insets.top + 56, paddingBottom: 24 },
         ]}
         showsVerticalScrollIndicator={false}
       >
         <Animated.View entering={FadeInDown.delay(60).duration(350)} style={s.header}>
-          <View style={s.heroIconWrap}>
-            <Text style={s.heroEmoji}>*</Text>
-          </View>
           <Text style={s.title}>Savvy Premium</Text>
           <Text style={s.subtitle}>
             More guidance, deeper planning, and a calmer path for your family finances.
           </Text>
-          <View style={s.priceHintPill}>
-            <Text style={s.priceHintText}>Now from {PRODUCTS.MONTHLY.price} per month</Text>
-          </View>
         </Animated.View>
 
         <Animated.View entering={FadeInDown.delay(110).duration(350)} style={s.featuresCard}>
@@ -158,78 +242,93 @@ export default function PaywallScreen() {
           ))}
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.delay(150).duration(350)} style={s.planSection}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Select annual plan"
-            onPress={() => {
-              Haptics.selectionAsync();
-              setSelectedPlan("annual");
-            }}
-            style={[s.planCard, selectedPlan === "annual" && s.planCardSelected]}
-          >
-            <View style={s.planLeft}>
-              <Text style={s.planTitle}>Annual</Text>
-              <Text style={s.planPrice}>
-                {PRODUCTS.ANNUAL.price}
-                <Text style={s.planPeriod}> / year</Text>
-              </Text>
-              <Text style={s.planMeta}>
-                {PRODUCTS.ANNUAL.pricePerMonth}/month - Save {PRODUCTS.ANNUAL.savings}
-              </Text>
-            </View>
-            <View style={[s.radioOuter, selectedPlan === "annual" && s.radioOuterActive]}>
-              {selectedPlan === "annual" && <View style={s.radioInner} />}
-            </View>
-          </Pressable>
+        {isLoadingOfferings ? (
+          <Animated.View entering={FadeInDown.delay(150).duration(350)} style={s.loadingContainer}>
+            <ActivityIndicator size="large" color="#10B981" />
+            <Text style={s.loadingText}>Loading plans...</Text>
+          </Animated.View>
+        ) : packages.length > 0 ? (
+          <>
+            <Animated.View entering={FadeInDown.delay(150).duration(350)} style={s.planSection}>
+              {packages.map((pkg) => {
+                const isSelected = selectedPackage?.identifier === pkg.identifier;
+                return (
+                  <Pressable
+                    key={pkg.identifier}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Select ${getPackageName(pkg)} plan`}
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      setSelectedPackage(pkg);
+                    }}
+                    style={[s.planCard, isSelected && s.planCardSelected]}
+                  >
+                    <View style={s.planLeft}>
+                      <Text style={s.planTitle}>{getPackageName(pkg)}</Text>
+                      <Text style={s.planPrice}>
+                        {formatPrice(pkg)}
+                        {pkg.packageType === "ANNUAL" && <Text style={s.planPeriod}> / year</Text>}
+                      </Text>
+                      <Text style={s.planMeta}>{getPackageDescription(pkg)}</Text>
+                    </View>
+                    <View style={[s.radioOuter, isSelected && s.radioOuterActive]}>
+                      {isSelected && <View style={s.radioInner} />}
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </Animated.View>
 
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Select monthly plan"
-            onPress={() => {
-              Haptics.selectionAsync();
-              setSelectedPlan("monthly");
-            }}
-            style={[s.planCard, selectedPlan === "monthly" && s.planCardSelected]}
-          >
-            <View style={s.planLeft}>
-              <Text style={s.planTitle}>Monthly</Text>
-              <Text style={s.planPrice}>
-                {PRODUCTS.MONTHLY.price}
-                <Text style={s.planPeriod}> / month</Text>
-              </Text>
-              <Text style={s.planMeta}>Flexible and cancel anytime</Text>
-            </View>
-            <View style={[s.radioOuter, selectedPlan === "monthly" && s.radioOuterActive]}>
-              {selectedPlan === "monthly" && <View style={s.radioInner} />}
-            </View>
-          </Pressable>
-        </Animated.View>
+          </>
+        ) : (
+          <Animated.View entering={FadeInDown.delay(150).duration(350)} style={s.errorContainer}>
+            <Ionicons name="warning-outline" size={32} color="#DC2626" />
+            <Text style={s.errorText}>Could not load subscription options</Text>
+            <Pressable onPress={loadOfferings} style={s.retryButton}>
+              <Text style={s.retryButtonText}>Retry</Text>
+            </Pressable>
+          </Animated.View>
+        )}
+      </ScrollView>
 
-        <Animated.View entering={FadeInDown.delay(190).duration(350)} style={s.ctaSection}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Start ${selectedPlan} premium plan`}
-            onPress={handlePurchase}
-            disabled={isLoading}
-            style={({ pressed }) => [s.ctaButton, pressed && !isLoading && s.buttonPressed]}
-          >
+      <View style={[s.bottomBar, { paddingBottom: insets.bottom + 16 }]}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Start premium plan"
+          onPress={handlePurchase}
+          disabled={isLoading || !selectedPackage}
+        >
+          <View style={[
+            s.ctaButton,
+            (isLoading || !selectedPackage) ? s.ctaButtonDisabled : undefined,
+          ]}>
             {isLoading ? (
               <ActivityIndicator color="#FFFFFF" />
             ) : (
-              <Text style={s.ctaText}>Start {selectedPlan === "annual" ? "annual" : "monthly"} plan</Text>
+              <Text style={s.ctaText}>
+                {selectedPackage ? `Get Premium for ${formatPrice(selectedPackage)}` : "Select a plan"}
+              </Text>
             )}
-          </Pressable>
+          </View>
+        </Pressable>
 
-          <Pressable accessibilityRole="button" accessibilityLabel="Restore purchases" onPress={handleRestore} disabled={isLoading} style={s.restoreButton}>
-            <Text style={s.restoreText}>Restore purchases</Text>
-          </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Restore purchases"
+          onPress={handleRestore}
+          disabled={isLoading}
+          style={s.restoreButton}
+        >
+          <Text style={s.restoreText}>Restore purchases</Text>
+        </Pressable>
 
-          <Text style={s.disclaimer}>
-            Demo mode is currently active. Billing is simulated for now.
-          </Text>
-        </Animated.View>
-      </ScrollView>
+        <Text style={s.disclaimer}>
+          Cancel anytime. Auto-renewable for annual plans. Payment processed securely through the App Store.
+        </Text>
+        <Text style={s.disclaimerLinks}>
+          By purchasing, you agree to our Terms of Service and Privacy Policy.
+        </Text>
+      </View>
     </View>
   );
 }
@@ -252,17 +351,6 @@ const s = StyleSheet.create({
   scrollContent: { paddingHorizontal: hatchSpacing.screenPadding },
 
   header: { alignItems: "center", marginBottom: 22 },
-  heroIconWrap: {
-    width: 86,
-    height: 86,
-    borderRadius: 43,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 14,
-    ...hatchShadows.sm,
-  },
-  heroEmoji: { fontSize: 40 },
   title: { fontSize: 31, fontWeight: "900", color: "#111827" },
   subtitle: {
     marginTop: 8,
@@ -272,14 +360,6 @@ const s = StyleSheet.create({
     color: "#4B5563",
     maxWidth: "92%",
   },
-  priceHintPill: {
-    marginTop: 12,
-    borderRadius: 999,
-    backgroundColor: "rgba(16, 185, 129, 0.12)",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  priceHintText: { fontSize: 12, fontWeight: "800", color: "#047857" },
 
   featuresCard: {
     borderRadius: 20,
@@ -317,7 +397,7 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#D1D5DB",
     backgroundColor: "#FFFFFF",
-    padding: 14,
+    padding: 16,
     marginBottom: 10,
     flexDirection: "row",
     alignItems: "center",
@@ -325,50 +405,114 @@ const s = StyleSheet.create({
   },
   planCardSelected: {
     borderColor: "#10B981",
-    backgroundColor: "rgba(16, 185, 129, 0.08)",
+    borderWidth: 2,
+    backgroundColor: "rgba(16, 185, 129, 0.06)",
   },
   planLeft: { flex: 1, marginRight: 12 },
-  planTitle: { fontSize: 13, fontWeight: "800", color: "#374151", textTransform: "uppercase" },
-  planPrice: { marginTop: 4, fontSize: 23, fontWeight: "900", color: "#111827" },
-  planPeriod: { fontSize: 13, fontWeight: "600", color: "#6B7280" },
-  planMeta: { marginTop: 3, fontSize: 12, color: "#047857", fontWeight: "700" },
+  planTitle: { fontSize: 13, fontWeight: "800", color: "#374151", textTransform: "uppercase", letterSpacing: 0.5 },
+  planPrice: { marginTop: 6, fontSize: 26, fontWeight: "900", color: "#111827" },
+  planPeriod: { fontSize: 14, fontWeight: "600", color: "#6B7280" },
+  planMeta: { marginTop: 4, fontSize: 12, color: "#059669", fontWeight: "700" },
   radioOuter: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     borderWidth: 2,
     borderColor: "#9CA3AF",
     alignItems: "center",
     justifyContent: "center",
   },
   radioOuterActive: { borderColor: "#10B981" },
-  radioInner: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#10B981" },
+  radioInner: { width: 12, height: 12, borderRadius: 6, backgroundColor: "#10B981" },
 
-  ctaSection: { alignItems: "center" },
+  bottomBar: {
+    backgroundColor: "#FFFFFF",
+    paddingTop: 16,
+    paddingHorizontal: 20,
+    borderTopWidth: 1,
+    borderTopColor: "#E5E7EB",
+  },
   ctaButton: {
     width: "100%",
-    borderRadius: hatchRadius.full,
+    minHeight: 60,
+    paddingVertical: 18,
+    paddingHorizontal: 24,
+    borderRadius: 16,
     backgroundColor: "#10B981",
-    paddingVertical: 17,
     alignItems: "center",
-    ...hatchShadows.glow,
+    justifyContent: "center",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 6,
   },
-  buttonPressed: { opacity: 0.92, transform: [{ scale: 0.99 }] },
+  ctaButtonDisabled: {
+    backgroundColor: "#9CA3AF",
+    opacity: 0.6,
+  },
+  buttonPressed: { opacity: 0.92, transform: [{ scale: 0.98 }] },
   ctaText: {
-    fontSize: 15,
+    fontSize: 18,
     fontWeight: "900",
     color: "#FFFFFF",
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
+    letterSpacing: 0.3,
   },
-  restoreButton: { marginTop: 14, padding: 10 },
-  restoreText: { fontSize: 13, fontWeight: "700", color: "#047857" },
+  restoreButton: { marginTop: 12, padding: 8, alignSelf: "center" },
+  restoreText: { fontSize: 13, fontWeight: "700", color: "#10B981" },
   disclaimer: {
-    marginTop: 6,
+    marginTop: 8,
     fontSize: 11,
     lineHeight: 16,
     textAlign: "center",
     color: "#6B7280",
+  },
+  disclaimerLinks: {
+    marginTop: 4,
+    fontSize: 10,
+    lineHeight: 14,
+    textAlign: "center",
+    color: "#9CA3AF",
+  },
+
+  // Loading state
+  loadingContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 40,
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#6B7280",
+  },
+
+  // Error state
+  errorContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 40,
+    paddingHorizontal: 20,
+  },
+  errorText: {
+    marginTop: 12,
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#6B7280",
+    textAlign: "center",
+  },
+  retryButton: {
+    marginTop: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: "#10B981",
+  },
+  retryButtonText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
 });
 

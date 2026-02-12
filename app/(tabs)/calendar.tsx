@@ -705,7 +705,7 @@ export default function CalendarScreen() {
                 }}
                 style={[s.toggleBtn, displayMode === "grid" && s.toggleBtnActive]}
               >
-              <Ionicons name="calendar" size={16} color={displayMode === "grid" ? hatchColors.primary.default : hatchColors.text.tertiary} />
+                <Ionicons name="calendar" size={16} color={displayMode === "grid" ? hatchColors.primary.default : hatchColors.text.tertiary} />
               </Pressable>
               <Pressable
                 accessibilityRole="button"
@@ -716,9 +716,9 @@ export default function CalendarScreen() {
                 }}
                 style={[s.toggleBtn, displayMode === "agenda" && s.toggleBtnActive]}
               >
-              <Ionicons name="list" size={16} color={displayMode === "agenda" ? hatchColors.primary.default : hatchColors.text.tertiary} />
+                <Ionicons name="list" size={16} color={displayMode === "agenda" ? hatchColors.primary.default : hatchColors.text.tertiary} />
               </Pressable>
-          </View>
+            </View>
         </View>
 
         <Animated.View
@@ -806,6 +806,55 @@ export default function CalendarScreen() {
             <Text style={s.dayLabel}>{selectedDate.toLocaleDateString("default", { weekday: "long" })}</Text>
           </View>
 
+          {timelineDayColumns.some(({ allDayEvents }) => allDayEvents.length > 0) && (
+            <View style={s.allDaySection}>
+              <View style={s.allDaySectionLabel}>
+                <Text style={s.allDaySectionLabelText}>ALL DAY</Text>
+              </View>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                scrollEnabled={timelineMode !== "day"}
+                contentContainerStyle={s.allDayScrollContent}
+              >
+                {timelineDayColumns.map(({ date, allDayEvents }, dayIdx) => {
+                  const columnWidth = timelineMode === "day" ? dayColumnWidth : timelineMode === "3day" ? 120 : 80;
+                  return (
+                    <View key={`allday-${date.toISOString()}-${dayIdx}`} style={[s.allDayColumn, { width: columnWidth }]}>
+                      {timelineMode !== "day" && (
+                        <Text style={s.allDayColumnDate}>{date.getDate()}</Text>
+                      )}
+                      {allDayEvents.map((event, allDayIndex) => {
+                        const category = getCategoryConfig(event.type, event.color);
+                        const recurrenceLabel = event.recurrence !== "none" ? `${event.recurrence} recurring` : "All day";
+                        return (
+                          <Pressable
+                            key={`${event.id}-${allDayIndex}-all-day`}
+                            onPress={() => handleEditEvent(event)}
+                            style={[
+                              s.allDayEventCard,
+                              {
+                                backgroundColor: category.colorLight,
+                                borderLeftColor: category.color,
+                              },
+                            ]}
+                          >
+                            <Text style={[s.allDayEventTitle, { color: category.color }]} numberOfLines={1}>
+                              {event.title}
+                            </Text>
+                            <Text style={[s.allDayEventMeta, { color: category.color }]}>
+                              {recurrenceLabel}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          )}
+
           <ScrollView
             ref={timelineScrollRef}
             style={s.timelineScroll}
@@ -827,7 +876,7 @@ export default function CalendarScreen() {
                 nestedScrollEnabled
               >
                 <View style={s.scheduleWrapper}>
-                  {timelineDayColumns.map(({ date, allDayEvents, timedLayouts }, dayIdx) => {
+                  {timelineDayColumns.map(({ date, timedLayouts }, dayIdx) => {
                     const nowLineTop = currentTime.getHours() * 60 + currentTime.getMinutes() + 20;
                     const isCurrentDay = isSameDate(date, today);
                     const columnWidth = timelineMode === "day" ? dayColumnWidth : timelineMode === "3day" ? 120 : 80;
@@ -845,33 +894,6 @@ export default function CalendarScreen() {
                         {Array.from({ length: 24 }).map((_, hour) => (
                           <View key={`${dayIdx}-${hour}`} style={s.hourRow} />
                         ))}
-
-                        {allDayEvents.map((event, allDayIndex) => {
-                          const category = getCategoryConfig(event.type, event.color);
-
-                          return (
-                            <Pressable
-                              key={`${event.id}-${allDayIndex}-all-day`}
-                              onPress={() => handleEditEvent(event)}
-                              style={[
-                                s.timelineEvent,
-                                s.timelineAllDayEvent,
-                                {
-                                  top: (4 + allDayIndex * 30) as DimensionValue,
-                                  left: 4,
-                                  right: 4,
-                                  backgroundColor: category.colorLight,
-                                  borderLeftColor: category.color,
-                                },
-                              ]}
-                            >
-                              <Text style={[s.eventTitleLabel, { color: category.color }]} numberOfLines={1}>
-                                {event.title}
-                              </Text>
-                              <Text style={[s.eventTimeLabel, { color: category.color }]}>All day</Text>
-                            </Pressable>
-                          );
-                        })}
 
                         {isCurrentDay && (
                           <View style={[s.nowLine, { top: nowLineTop }]}>
@@ -1262,6 +1284,61 @@ const s = StyleSheet.create({
   modeBtnTextActive: { color: hatchColors.text.primary },
   dayLabel: { fontSize: 13, fontWeight: "700", color: hatchColors.text.secondary, textTransform: "uppercase" },
 
+  allDaySection: {
+    backgroundColor: "#FFFFFF",
+    borderBottomWidth: 1,
+    borderBottomColor: hatchColors.border.default,
+    flexDirection: "row",
+    paddingVertical: 8,
+    paddingRight: 8,
+  },
+  allDaySectionLabel: {
+    width: 60,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 4,
+  },
+  allDaySectionLabelText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: hatchColors.text.tertiary,
+    textAlign: "center",
+    letterSpacing: 0.5,
+  },
+  allDayScrollContent: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  allDayColumn: {
+    paddingHorizontal: 4,
+  },
+  allDayColumnDate: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: hatchColors.text.secondary,
+    textAlign: "center",
+    marginBottom: 4,
+  },
+  allDayEventCard: {
+    borderRadius: 8,
+    padding: 8,
+    paddingLeft: 10,
+    borderLeftWidth: 4,
+    marginBottom: 6,
+    ...hatchShadows.sm,
+  },
+  allDayEventTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  allDayEventMeta: {
+    fontSize: 9,
+    fontWeight: "600",
+    marginTop: 2,
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
+  },
+
   timelineScroll: { flex: 1, backgroundColor: "#F9FAFB", zIndex: 1 },
   timelineContainer: { flexDirection: "row", minHeight: 1440 },
   timeCol: { width: 60, borderRightWidth: 1, borderRightColor: hatchColors.border.light, paddingTop: 20 },
@@ -1271,10 +1348,6 @@ const s = StyleSheet.create({
   scheduleCol: { position: "relative", borderRightWidth: 1, borderRightColor: hatchColors.border.light },
   hourRow: { height: 60, borderBottomWidth: 1, borderBottomColor: hatchColors.border.light, width: "100%", opacity: 0.5 },
   timelineEvent: { position: "absolute", borderRadius: 8, padding: 6, paddingLeft: 8, borderLeftWidth: 4, overflow: "hidden", justifyContent: "center", shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 1 },
-  timelineAllDayEvent: {
-    height: 26,
-    zIndex: 11,
-  },
   eventTitleLabel: { fontSize: 12, fontWeight: "800" },
   eventTimeLabel: { fontSize: 10, fontWeight: "600", marginTop: 1 },
   nowLine: { position: "absolute", left: 0, right: 0, height: 2, zIndex: 10, flexDirection: "row", alignItems: "center" },

@@ -1,39 +1,51 @@
 // RevenueCat integration layer for Savvy.
-// Default behavior stays in dummy mode until EXPO_PUBLIC_REVENUECAT_DUMMY is set to "false".
+// Modern implementation with Paywalls and Customer Center support.
 
 import { Platform } from "react-native";
 
-// Keep prices aligned with the paywall UI.
+// Conditional import - only load in production
+let Purchases: any = null;
+let LOG_LEVEL: any = null;
+let PURCHASES_ERROR_CODE: any = null;
+
+const DUMMY_MODE = process.env.EXPO_PUBLIC_REVENUECAT_DUMMY !== "false";
+
+if (!DUMMY_MODE) {
+  try {
+    const purchasesModule = require("react-native-purchases");
+    Purchases = purchasesModule.default || purchasesModule;
+    LOG_LEVEL = purchasesModule.LOG_LEVEL;
+    PURCHASES_ERROR_CODE = purchasesModule.PURCHASES_ERROR_CODE;
+  } catch (error) {
+    console.warn("RevenueCat SDK not available, using dummy mode");
+  }
+}
+
+// Type definitions for better TypeScript support
+export type PurchasesOfferings = any;
+export type PurchasesPackage = any;
+export type CustomerInfo = any;
+
+// Product identifiers - must match RevenueCat dashboard
 export const PRODUCTS = {
-  MONTHLY: {
-    id: "savvy_monthly",
-    price: "\u00a31.99",
-    period: "month",
-    pricePerMonth: "\u00a31.99",
+  LIFETIME: {
+    id: "lifetime",
+    price: "$10",
+    period: "lifetime",
+    description: "One-time payment, unlimited access forever",
   },
   ANNUAL: {
-    id: "savvy_annual",
-    price: "\u00a314.99",
+    id: "yearly",
+    price: "$5",
     period: "year",
-    pricePerMonth: "\u00a31.25",
-    savings: "37%",
+    description: "Renews annually",
   },
 } as const;
 
 export type ProductType = keyof typeof PRODUCTS;
 
-type PurchasesModule = {
-  configure: (params: { apiKey: string }) => Promise<void> | void;
-  getCustomerInfo: () => Promise<any>;
-  purchaseProduct: (productId: string) => Promise<any>;
-  restorePurchases: () => Promise<any>;
-  getOfferings?: () => Promise<any>;
-};
+const ENTITLEMENT_ID = process.env.EXPO_PUBLIC_REVENUECAT_ENTITLEMENT_ID || "Savvy Pro";
 
-const DUMMY_MODE = process.env.EXPO_PUBLIC_REVENUECAT_DUMMY !== "false";
-const ENTITLEMENT_ID = process.env.EXPO_PUBLIC_REVENUECAT_ENTITLEMENT_ID || "premium";
-
-let purchasesCache: PurchasesModule | null | undefined;
 let initialized = false;
 let mockPremiumState = false;
 
@@ -43,81 +55,96 @@ function getApiKey(): string {
   return "";
 }
 
-function loadPurchasesModule(): PurchasesModule | null {
-  if (purchasesCache !== undefined) return purchasesCache;
-
-  try {
-    // Avoid hard dependency while this project still runs in dummy mode.
-    const runtimeRequire = eval("require");
-    const module = runtimeRequire("react-native-purchases");
-    purchasesCache = (module?.default ?? module) as PurchasesModule;
-  } catch {
-    purchasesCache = null;
-  }
-
-  return purchasesCache;
-}
-
-function hasActiveEntitlement(customerInfo: any): boolean {
-  return Boolean(customerInfo?.entitlements?.active?.[ENTITLEMENT_ID]);
-}
-
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function hasActiveEntitlement(customerInfo: CustomerInfo): boolean {
+  if (DUMMY_MODE) return mockPremiumState;
+  if (!customerInfo) return false;
+  return Boolean(customerInfo?.entitlements?.active?.[ENTITLEMENT_ID]);
+}
+
 /**
- * Initialize RevenueCat SDK (real mode) or dummy mode.
+ * Initialize RevenueCat SDK with best practices
  */
 export async function initializePurchases(): Promise<void> {
   if (initialized) return;
 
-  if (DUMMY_MODE) {
+  if (DUMMY_MODE || !Purchases) {
     initialized = true;
     console.log("RevenueCat initialized in dummy mode");
     return;
   }
 
-  const purchases = loadPurchasesModule();
   const apiKey = getApiKey();
-
-  if (!purchases || !apiKey) {
-    console.warn(
-      "RevenueCat SDK/key missing. Falling back to dummy mode. " +
-        "Set EXPO_PUBLIC_REVENUECAT_DUMMY=false and provide platform API keys."
-    );
+  if (!apiKey) {
+    console.warn("RevenueCat API key missing. Falling back to dummy mode.");
     initialized = true;
     return;
   }
 
-  await purchases.configure({ apiKey });
-  initialized = true;
+  try {
+    // Configure SDK with proper logging for development
+    if (__DEV__ && LOG_LEVEL) {
+      Purchases.setLogLevel(LOG_LEVEL.DEBUG);
+    }
+
+    // Initialize SDK
+    await Purchases.configure({ apiKey });
+
+    // Enable automatic collection of Apple Search Ads attribution (iOS only)
+    if (Platform.OS === "ios" && Purchases.enableAdServicesAttributionTokenCollection) {
+      Purchases.enableAdServicesAttributionTokenCollection();
+    }
+
+    initialized = true;
+    console.log("RevenueCat initialized successfully");
+  } catch (error) {
+    console.error("Failed to initialize RevenueCat:", error);
+    initialized = true; // Mark as initialized to prevent retry loops
+  }
 }
 
 /**
- * Check if user has active subscription.
+ * Check if user has active premium subscription
  */
 export async function checkSubscriptionStatus(): Promise<boolean> {
-  if (DUMMY_MODE) return mockPremiumState;
+  if (DUMMY_MODE || !Purchases) return mockPremiumState;
 
   try {
     await initializePurchases();
-    const purchases = loadPurchasesModule();
-    if (!purchases) return false;
-    const customerInfo = await purchases.getCustomerInfo();
+    const customerInfo = await Purchases.getCustomerInfo();
     return hasActiveEntitlement(customerInfo);
-  } catch {
+  } catch (error) {
+    console.error("Error checking subscription status:", error);
     return false;
   }
 }
 
 /**
- * Purchase a subscription package.
+ * Get current offerings from RevenueCat
+ */
+export async function getOfferings(): Promise<PurchasesOfferings | null> {
+  if (DUMMY_MODE || !Purchases) return null;
+
+  try {
+    await initializePurchases();
+    const offerings = await Purchases.getOfferings();
+    return offerings;
+  } catch (error) {
+    console.error("Error fetching offerings:", error);
+    return null;
+  }
+}
+
+/**
+ * Purchase a package
  */
 export async function purchasePackage(
-  productId: string
-): Promise<{ success: boolean; error?: string }> {
-  if (DUMMY_MODE) {
+  packageToPurchase: PurchasesPackage | string
+): Promise<{ success: boolean; error?: string; customerInfo?: CustomerInfo }> {
+  if (DUMMY_MODE || !Purchases) {
     await delay(1200);
     mockPremiumState = true;
     return { success: true };
@@ -125,51 +152,134 @@ export async function purchasePackage(
 
   try {
     await initializePurchases();
-    const purchases = loadPurchasesModule();
-    if (!purchases) return { success: false, error: "Purchases SDK not available" };
 
-    const result = await purchases.purchaseProduct(productId);
-    const customerInfo = result?.customerInfo ?? result;
+    let purchaseResult;
+    
+    // Handle both PurchasesPackage object and product ID string
+    if (typeof packageToPurchase === "string") {
+      // If string ID provided, find the package in offerings
+      const offerings = await getOfferings();
+      const currentOffering = offerings?.current;
+      
+      if (!currentOffering) {
+        return { success: false, error: "No offerings available" };
+      }
+
+      // Find package by identifier
+      const packageObj = currentOffering.availablePackages.find(
+        (pkg: any) => pkg.identifier === packageToPurchase
+      );
+
+      if (!packageObj) {
+        return { success: false, error: "Package not found" };
+      }
+
+      purchaseResult = await Purchases.purchasePackage(packageObj);
+    } else {
+      purchaseResult = await Purchases.purchasePackage(packageToPurchase);
+    }
+
+    const { customerInfo } = purchaseResult;
+
     return {
       success: hasActiveEntitlement(customerInfo),
-      error: hasActiveEntitlement(customerInfo) ? undefined : "Purchase completed but entitlement not active",
+      customerInfo,
+      error: hasActiveEntitlement(customerInfo)
+        ? undefined
+        : "Purchase completed but entitlement not active",
     };
   } catch (error: any) {
-    const message =
-      error?.userCancelled === true
-        ? "Purchase cancelled"
-        : error?.message || "Purchase failed";
-    return { success: false, error: message };
+    // Handle specific error cases
+    if (PURCHASES_ERROR_CODE && error.code === PURCHASES_ERROR_CODE.PURCHASE_CANCELLED_ERROR) {
+      return { success: false, error: "Purchase cancelled" };
+    }
+
+    if (PURCHASES_ERROR_CODE && error.code === PURCHASES_ERROR_CODE.PRODUCT_ALREADY_PURCHASED_ERROR) {
+      return { success: false, error: "You already own this product" };
+    }
+
+    console.error("Purchase error:", error);
+    return {
+      success: false,
+      error: error?.message || "Purchase failed. Please try again.",
+    };
   }
 }
 
 /**
- * Restore previous purchases.
+ * Restore previous purchases
  */
 export async function restorePurchases(): Promise<{
   success: boolean;
   hasPremium: boolean;
+  customerInfo?: CustomerInfo;
 }> {
-  if (DUMMY_MODE) {
+  if (DUMMY_MODE || !Purchases) {
     await delay(800);
     return { success: true, hasPremium: mockPremiumState };
   }
 
   try {
     await initializePurchases();
-    const purchases = loadPurchasesModule();
-    if (!purchases) return { success: false, hasPremium: false };
-
-    const customerInfo = await purchases.restorePurchases();
-    return { success: true, hasPremium: hasActiveEntitlement(customerInfo) };
-  } catch {
+    const customerInfo = await Purchases.restorePurchases();
+    
+    return {
+      success: true,
+      hasPremium: hasActiveEntitlement(customerInfo),
+      customerInfo,
+    };
+  } catch (error) {
+    console.error("Restore error:", error);
     return { success: false, hasPremium: false };
   }
 }
 
 /**
- * Get available products.
- * In real mode you can later map offerings into this shape.
+ * Get customer info
+ */
+export async function getCustomerInfo(): Promise<CustomerInfo | null> {
+  if (DUMMY_MODE || !Purchases) return null;
+
+  try {
+    await initializePurchases();
+    const customerInfo = await Purchases.getCustomerInfo();
+    return customerInfo;
+  } catch (error) {
+    console.error("Error getting customer info:", error);
+    return null;
+  }
+}
+
+/**
+ * Set custom user ID (optional - for cross-platform tracking)
+ */
+export async function identifyUser(userId: string): Promise<void> {
+  if (DUMMY_MODE || !Purchases) return;
+
+  try {
+    await initializePurchases();
+    await Purchases.logIn(userId);
+  } catch (error) {
+    console.error("Error identifying user:", error);
+  }
+}
+
+/**
+ * Log out current user
+ */
+export async function logoutUser(): Promise<void> {
+  if (DUMMY_MODE || !Purchases) return;
+
+  try {
+    await initializePurchases();
+    await Purchases.logOut();
+  } catch (error) {
+    console.error("Error logging out user:", error);
+  }
+}
+
+/**
+ * Get available products (fallback for display purposes)
  */
 export async function getProducts(): Promise<typeof PRODUCTS> {
   return PRODUCTS;

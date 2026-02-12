@@ -1,4 +1,4 @@
-﻿// Currency definitions for Savvy App
+// Currency definitions for Savvy App
 
 export type CurrencyCode = "GBP" | "USD" | "EUR";
 
@@ -30,11 +30,11 @@ export const currencies: Record<CurrencyCode, Currency> = {
   },
 } as const;
 
-export const defaultCurrency: CurrencyCode = "GBP";
+export const defaultCurrency: CurrencyCode = "USD";
 
 export function formatCurrency(
   amount: number,
-  currencyCode: CurrencyCode = "GBP",
+  currencyCode: CurrencyCode = "USD",
   options?: Intl.NumberFormatOptions
 ): string {
   const currency = currencies[currencyCode];
@@ -55,7 +55,7 @@ export function formatCurrency(
 
 export function formatCurrencyShort(
   amount: number,
-  currencyCode: CurrencyCode = "GBP",
+  currencyCode: CurrencyCode = "USD",
   period?: "month" | "year"
 ): string {
   const currency = currencies[currencyCode];

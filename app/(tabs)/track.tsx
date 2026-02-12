@@ -1,8 +1,9 @@
-﻿import { currencies, formatCurrency } from "@/constants/currencies";
+import { currencies, formatCurrency } from "@/constants/currencies";
 import { hatchColors, hatchShadows } from "@/constants/theme";
 import { SavingsEntry, SavingsGoal, useApp } from "@/lib/app-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import { useRouter } from "expo-router";
 import React, { useMemo, useState } from "react";
 import {
   Alert,
@@ -47,6 +48,7 @@ function getGoalProgress(goal: SavingsGoal): number {
 
 export default function TrackScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const {
     userProfile,
     savingsEntries,
@@ -57,12 +59,14 @@ export default function TrackScreen() {
     getTotalExpenses,
     getTotalSavings,
     getReservedExpenses,
+    getTotalAllocatedToGoals,
     getAvailableAfterReserved,
     getUpcomingCostEvents,
     savingsGoals,
     addSavingsGoal,
     updateSavingsGoal,
     deleteSavingsGoal,
+    isPremium,
   } = useApp();
 
   const currency = userProfile?.currency || "EUR";
@@ -85,13 +89,23 @@ export default function TrackScreen() {
   const [goalTitle, setGoalTitle] = useState("");
   const [goalTarget, setGoalTarget] = useState("");
   const [goalCurrent, setGoalCurrent] = useState("");
+  const [goalIsFavorite, setGoalIsFavorite] = useState(false);
+  
+  const [statsTab, setStatsTab] = useState<"simple" | "advanced">("simple");
+  const [recurringModalVisible, setRecurringModalVisible] = useState(false);
 
   const incomeTotal = getTotalIncome();
   const expenseTotal = getTotalExpenses();
   const netBalance = getTotalSavings();
   const plannedExpenses = getReservedExpenses();
+  const allocatedToGoals = getTotalAllocatedToGoals();
   const afterPlanned = getAvailableAfterReserved();
   const upcomingEvents = getUpcomingCostEvents();
+  
+  const hasRecurringCosts = useMemo(
+    () => upcomingEvents.some((event) => event.recurrence && event.recurrence !== "none"),
+    [upcomingEvents]
+  );
 
   const entries = useMemo(
     () => [...savingsEntries].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
@@ -111,12 +125,7 @@ export default function TrackScreen() {
     [savingsGoals]
   );
   const primaryGoal = useMemo(() => {
-    if (goalsSorted.length === 0) return null;
-    return [...goalsSorted].sort((a, b) => {
-      const pa = a.targetAmount > 0 ? a.currentAmount / a.targetAmount : 0;
-      const pb = b.targetAmount > 0 ? b.currentAmount / b.targetAmount : 0;
-      return pa - pb;
-    })[0];
+    return goalsSorted.find((goal) => goal.isFavorite) || null;
   }, [goalsSorted]);
   const primaryGoalProgress = primaryGoal ? getGoalProgress(primaryGoal) : 0;
 
@@ -166,11 +175,13 @@ export default function TrackScreen() {
       setGoalTitle(goal.title);
       setGoalTarget(String(goal.targetAmount));
       setGoalCurrent(String(goal.currentAmount));
+      setGoalIsFavorite(goal.isFavorite || false);
     } else {
       setEditingGoal(null);
       setGoalTitle("");
       setGoalTarget("");
       setGoalCurrent("0");
+      setGoalIsFavorite(false);
     }
     setGoalModalVisible(true);
   };
@@ -190,12 +201,14 @@ export default function TrackScreen() {
       return;
     }
 
+    // Context handles ensuring only one favorite exists
     if (editingGoal) {
       await updateSavingsGoal({
         ...editingGoal,
         title: goalTitle.trim(),
         targetAmount: target,
         currentAmount: current,
+        isFavorite: goalIsFavorite,
       });
     } else {
       await addSavingsGoal({
@@ -204,6 +217,7 @@ export default function TrackScreen() {
         currentAmount: current,
         icon: "flag",
         color: hatchColors.primary.default,
+        isFavorite: goalIsFavorite,
       });
     }
 
@@ -243,14 +257,7 @@ export default function TrackScreen() {
 
   return (
     <View style={s.root}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{
-          paddingTop: insets.top + 14,
-          paddingBottom: insets.bottom + 90,
-          paddingHorizontal: 20,
-        }}
-      >
+      <View style={[s.stickyHeader, { paddingTop: insets.top + 14, paddingHorizontal: 20 }]}>
         <View style={s.header}>
           <View>
             <Text style={s.title}>Savings</Text>
@@ -268,53 +275,69 @@ export default function TrackScreen() {
             <Ionicons name="stats-chart" size={20} color={hatchColors.primary.default} />
           </Pressable>
         </View>
+      </View>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{
+          paddingTop: 14,
+          paddingBottom: insets.bottom + 90,
+          paddingHorizontal: 20,
+        }}
+      >
 
         <View style={s.heroCard}>
-          <Text style={s.heroLabel}>AVAILABLE NOW</Text>
-          <Text style={s.heroValue}>{formatCurrency(netBalance, currency)}</Text>
+          <View style={s.heroLabelRow}>
+            <Text style={s.heroLabel}>AVAILABLE NOW</Text>
+            {hasRecurringCosts && (
+              <Pressable
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setRecurringModalVisible(true);
+                }}
+                style={s.recurringBadge}
+              >
+                <Ionicons name="repeat" size={10} color={hatchColors.text.inverse} />
+                <Text style={s.recurringBadgeText}>RECURRING</Text>
+              </Pressable>
+            )}
+          </View>
+          <Text style={s.heroValue}>{formatCurrency(afterPlanned, currency)}</Text>
 
           <View style={s.heroGrid}>
             <MetricCell label="Income" value={`+${formatCurrency(incomeTotal, currency)}`} />
             <MetricCell label="Spent" value={`-${formatCurrency(expenseTotal, currency)}`} />
             <MetricCell label="Reserved" value={`-${formatCurrency(plannedExpenses, currency)}`} />
-            <MetricCell label="After reserved" value={formatCurrency(afterPlanned, currency)} />
+            <MetricCell label="In goals" value={`-${formatCurrency(allocatedToGoals, currency)}`} />
+            <MetricCell label="Net balance" value={formatCurrency(netBalance, currency)} highlight />
           </View>
         </View>
 
-        <Pressable
-          style={[s.goalHeroCard, !primaryGoal && s.goalHeroCardEmpty]}
-          onPress={() => (primaryGoal ? openGoalModal(primaryGoal) : openGoalModal())}
-        >
-          {primaryGoal ? (
-            <>
-              <View style={s.goalHeroHeader}>
-                <Text style={s.goalHeroLabel}>SAVINGS GOAL</Text>
-                <Text style={s.goalHeroPercent}>
-                  {primaryGoalProgress}%
-                </Text>
-              </View>
-              <Text style={s.goalHeroTitle}>{primaryGoal.title}</Text>
-              <Text style={s.goalHeroMeta}>
-                {formatCurrency(primaryGoal.currentAmount, currency)} of {formatCurrency(primaryGoal.targetAmount, currency)}
+        {primaryGoal && (
+          <Pressable
+            style={s.goalHeroCard}
+            onPress={() => openGoalModal(primaryGoal)}
+          >
+            <View style={s.goalHeroHeader}>
+              <Text style={s.goalHeroLabel}>YOUR FAVORITE SAVING GOAL</Text>
+              <Text style={s.goalHeroPercent}>
+                {primaryGoalProgress}%
               </Text>
-              <View style={s.goalHeroTrack}>
-                <View
-                  style={[
-                    s.goalHeroFill,
-                    { width: `${primaryGoalProgress}%` },
-                  ]}
-                />
-              </View>
-              <Text style={s.goalHeroHint}>Tap to edit goal</Text>
-            </>
-          ) : (
-            <>
-              <Text style={s.goalHeroLabel}>SAVINGS GOAL</Text>
-              <Text style={s.goalHeroTitle}>Create your first goal</Text>
-              <Text style={s.goalHeroMeta}>A clear goal makes saving easier and more consistent.</Text>
-            </>
-          )}
-        </Pressable>
+            </View>
+            <Text style={s.goalHeroTitle}>{primaryGoal.title}</Text>
+            <Text style={s.goalHeroMeta}>
+              {formatCurrency(primaryGoal.currentAmount, currency)} of {formatCurrency(primaryGoal.targetAmount, currency)}
+            </Text>
+            <View style={s.goalHeroTrack}>
+              <View
+                style={[
+                  s.goalHeroFill,
+                  { width: `${primaryGoalProgress}%` },
+                ]}
+              />
+            </View>
+            <Text style={s.goalHeroHint}>Tap to edit goal</Text>
+          </Pressable>
+        )}
 
         <View style={s.sectionHeader}>
           <Text style={s.sectionTitle}>Goals</Text>
@@ -340,7 +363,12 @@ export default function TrackScreen() {
                   onPress={() => openGoalModal(goal)}
                 >
                   <View style={s.goalRowHeader}>
-                    <Text style={s.goalRowTitle} numberOfLines={1}>{goal.title}</Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flex: 1 }}>
+                      <Text style={s.goalRowTitle} numberOfLines={1}>{goal.title}</Text>
+                      {goal.isFavorite && (
+                        <Ionicons name="star" size={14} color={hatchColors.primary.default} />
+                      )}
+                    </View>
                     <Text style={s.goalRowPercent}>{progress}%</Text>
                   </View>
                   <Text style={s.goalRowMeta}>
@@ -576,6 +604,23 @@ export default function TrackScreen() {
             <TextInput style={s.input} value={goalTarget} onChangeText={(value) => setGoalTarget(normalizeMoneyInput(value))} keyboardType="decimal-pad" placeholder="0.00" />
             <Text style={s.modalLabel}>Current amount</Text>
             <TextInput style={s.input} value={goalCurrent} onChangeText={(value) => setGoalCurrent(normalizeMoneyInput(value))} keyboardType="decimal-pad" placeholder="0.00" />
+            
+            <Pressable
+              style={s.favoriteToggle}
+              onPress={() => {
+                Haptics.selectionAsync();
+                setGoalIsFavorite(!goalIsFavorite);
+              }}
+            >
+              <View style={s.favoriteToggleContent}>
+                <Ionicons name={goalIsFavorite ? "star" : "star-outline"} size={20} color={goalIsFavorite ? hatchColors.primary.default : hatchColors.text.secondary} />
+                <Text style={s.favoriteToggleText}>Mark as favorite goal</Text>
+              </View>
+              <View style={[s.favoriteCheckbox, goalIsFavorite && s.favoriteCheckboxActive]}>
+                {goalIsFavorite && <Ionicons name="checkmark" size={14} color="#FFFFFF" />}
+              </View>
+            </Pressable>
+
             <Pressable style={s.saveBtn} onPress={saveGoal}><Text style={s.saveBtnText}>Save goal</Text></Pressable>
             {editingGoal && (
               <Pressable style={s.deleteBtn} onPress={() => confirmDeleteGoal(editingGoal)}>
@@ -595,21 +640,190 @@ export default function TrackScreen() {
         <View style={s.modalOverlay}>
           <View style={s.modalCard}>
             <View style={s.modalHeader}>
-              <Text style={s.modalTitle}>Simple stats</Text>
+              <Text style={s.modalTitle}>Statistics</Text>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Close simple stats"
+                accessibilityLabel="Close statistics"
                 style={s.modalCloseBtn}
-                onPress={() => setStatsVisible(false)}
+                onPress={() => {
+                  setStatsVisible(false);
+                  setStatsTab("simple");
+                }}
               >
                 <Ionicons name="close" size={22} color={hatchColors.text.secondary} />
               </Pressable>
             </View>
 
-            <StatBar label="Spent from income" value={`${expenseRatio}%`} percent={expenseRatio} />
-            <StatBar label="Reserved from income" value={`${plannedRatio}%`} percent={plannedRatio} />
-            <StatBar label="Current saved ratio" value={`${savedRatio}%`} percent={savedRatio} />
-            <Text style={s.statHint}>These are quick guidance numbers, not strict limits.</Text>
+            <View style={s.statsTabs}>
+              <Pressable
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  setStatsTab("simple");
+                }}
+                style={[s.statsTab, statsTab === "simple" && s.statsTabActive]}
+              >
+                <Text style={[s.statsTabText, statsTab === "simple" && s.statsTabTextActive]}>
+                  Simple
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  if (!isPremium) {
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                    Alert.alert(
+                      "Premium feature",
+                      "Advanced statistics are part of Savvy Premium. Upgrade to unlock detailed insights.",
+                      [
+                        { text: "Not now", style: "cancel" },
+                        { text: "See plans", onPress: () => router.push("/paywall") },
+                      ]
+                    );
+                    return;
+                  }
+                  Haptics.selectionAsync();
+                  setStatsTab("advanced");
+                }}
+                style={[s.statsTab, statsTab === "advanced" && s.statsTabActive]}
+              >
+                <Text style={[s.statsTabText, statsTab === "advanced" && s.statsTabTextActive]}>
+                  Advanced
+                </Text>
+                {!isPremium && (
+                  <Ionicons name="lock-closed" size={12} color={hatchColors.text.tertiary} style={{ marginLeft: 4 }} />
+                )}
+              </Pressable>
+            </View>
+
+            <ScrollView style={s.statsContent} showsVerticalScrollIndicator={false}>
+              {statsTab === "simple" ? (
+                <>
+                  <StatBar label="Spent from income" value={`${expenseRatio}%`} percent={expenseRatio} />
+                  <StatBar label="Reserved from income" value={`${plannedRatio}%`} percent={plannedRatio} />
+                  <StatBar label="Current saved ratio" value={`${savedRatio}%`} percent={savedRatio} />
+                  <Text style={s.statHint}>These are quick guidance numbers, not strict limits.</Text>
+                </>
+              ) : (
+                <>
+                  <Text style={s.advancedStatsTitle}>Detailed breakdown</Text>
+                  
+                  <View style={s.advancedStatCard}>
+                    <Text style={s.advancedStatLabel}>Total income</Text>
+                    <Text style={s.advancedStatValue}>{formatCurrency(incomeTotal, currency)}</Text>
+                  </View>
+
+                  <View style={s.advancedStatCard}>
+                    <Text style={s.advancedStatLabel}>Total expenses</Text>
+                    <Text style={s.advancedStatValue}>{formatCurrency(expenseTotal, currency)}</Text>
+                    <Text style={s.advancedStatMeta}>{expenseRatio}% of income</Text>
+                  </View>
+
+                  <View style={s.advancedStatCard}>
+                    <Text style={s.advancedStatLabel}>Reserved for planned events</Text>
+                    <Text style={s.advancedStatValue}>{formatCurrency(plannedExpenses, currency)}</Text>
+                    <Text style={s.advancedStatMeta}>{plannedRatio}% of income</Text>
+                  </View>
+
+                  <View style={s.advancedStatCard}>
+                    <Text style={s.advancedStatLabel}>Allocated to goals</Text>
+                    <Text style={s.advancedStatValue}>{formatCurrency(allocatedToGoals, currency)}</Text>
+                    <Text style={s.advancedStatMeta}>{savingsGoals.length} active {savingsGoals.length === 1 ? 'goal' : 'goals'}</Text>
+                  </View>
+
+                  <View style={[s.advancedStatCard, s.advancedStatCardHighlight]}>
+                    <Text style={s.advancedStatLabel}>Available now (after all)</Text>
+                    <Text style={[s.advancedStatValue, { color: hatchColors.primary.default }]}>
+                      {formatCurrency(afterPlanned, currency)}
+                    </Text>
+                    <Text style={s.advancedStatMeta}>
+                      {incomeTotal > 0 ? Math.round((afterPlanned / incomeTotal) * 100) : 0}% remaining
+                    </Text>
+                  </View>
+
+                  <Text style={s.advancedStatsTitle}>Entry breakdown</Text>
+                  
+                  <View style={s.advancedStatCard}>
+                    <Text style={s.advancedStatLabel}>Total entries</Text>
+                    <Text style={s.advancedStatValue}>{savingsEntries.length}</Text>
+                    <Text style={s.advancedStatMeta}>
+                      {savingsEntries.filter(e => e.type === 'income').length} income · {savingsEntries.filter(e => e.type === 'expense').length} expenses
+                    </Text>
+                  </View>
+
+                  {incomeTotal > 0 && (
+                    <View style={s.advancedStatCard}>
+                      <Text style={s.advancedStatLabel}>Savings rate</Text>
+                      <Text style={s.advancedStatValue}>{savedRatio}%</Text>
+                      <Text style={s.advancedStatMeta}>
+                        {savedRatio >= 20 ? 'Excellent progress! 🎉' : savedRatio >= 10 ? 'Good start! Keep going.' : 'Every little bit helps.'}
+                      </Text>
+                    </View>
+                  )}
+                </>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={recurringModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRecurringModalVisible(false)}
+      >
+        <View style={s.modalOverlay}>
+          <View style={s.modalCard}>
+            <View style={s.modalHeader}>
+              <Text style={s.modalTitle}>Recurring costs</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close recurring costs"
+                style={s.modalCloseBtn}
+                onPress={() => setRecurringModalVisible(false)}
+              >
+                <Ionicons name="close" size={22} color={hatchColors.text.secondary} />
+              </Pressable>
+            </View>
+
+            <ScrollView style={{ maxHeight: 400 }} showsVerticalScrollIndicator={false}>
+              {upcomingEvents
+                .filter((event) => event.recurrence && event.recurrence !== "none")
+                .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+                .map((event, index) => {
+                  const eventDate = new Date(event.date);
+                  const dateStr = eventDate.toLocaleDateString("en-US", { 
+                    weekday: "short", 
+                    month: "short", 
+                    day: "numeric" 
+                  });
+                  
+                  return (
+                    <View key={`${event.id}-${index}`} style={s.recurringEventCard}>
+                      <View style={s.recurringEventHeader}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={s.recurringEventTitle}>{event.title}</Text>
+                          <Text style={s.recurringEventDate}>{dateStr}</Text>
+                        </View>
+                        <View style={s.recurringEventBadge}>
+                          <Ionicons name="repeat" size={12} color={hatchColors.primary.default} />
+                          <Text style={s.recurringEventBadgeText}>
+                            {event.recurrence}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={s.recurringEventAmount}>
+                        {formatCurrency(event.amount || 0, currency)}
+                      </Text>
+                    </View>
+                  );
+                })}
+              
+              {upcomingEvents.filter((event) => event.recurrence && event.recurrence !== "none").length === 0 && (
+                <View style={s.recurringEmptyState}>
+                  <Text style={s.recurringEmptyText}>No recurring costs found</Text>
+                </View>
+              )}
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -617,11 +831,11 @@ export default function TrackScreen() {
   );
 }
 
-function MetricCell({ label, value }: { label: string; value: string }) {
+function MetricCell({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
     <View style={{ width: "48%", marginBottom: 8 }}>
       <Text style={s.heroMiniLabel}>{label}</Text>
-      <Text style={s.heroMiniValue}>{value}</Text>
+      <Text style={[s.heroMiniValue, highlight && s.heroMiniValueHighlight]}>{value}</Text>
     </View>
   );
 }
@@ -638,7 +852,8 @@ function StatBar({ label, value, percent }: { label: string; value: string; perc
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: hatchColors.background.primary },
-  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
+  stickyHeader: { backgroundColor: hatchColors.background.primary, paddingBottom: 14, zIndex: 10 },
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   title: { fontSize: 30, fontWeight: "800", color: hatchColors.text.primary },
   subtitle: { marginTop: 4, fontSize: 13, color: hatchColors.text.secondary },
   statsBtn: { width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: hatchColors.primary.muted },
@@ -651,11 +866,28 @@ const s = StyleSheet.create({
   },
 
   heroCard: { borderRadius: 20, backgroundColor: hatchColors.primary.default, padding: 16, marginBottom: 12, ...hatchShadows.md },
+  heroLabelRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   heroLabel: { fontSize: 10, fontWeight: "800", color: "rgba(255,255,255,0.75)", letterSpacing: 0.8 },
+  recurringBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  recurringBadgeText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#FFFFFF",
+    letterSpacing: 0.5,
+  },
   heroValue: { marginTop: 4, fontSize: 30, fontWeight: "800", color: "#FFFFFF" },
   heroGrid: { marginTop: 12, flexDirection: "row", justifyContent: "space-between", flexWrap: "wrap" },
   heroMiniLabel: { fontSize: 11, fontWeight: "700", color: "rgba(255,255,255,0.8)" },
   heroMiniValue: { marginTop: 2, fontSize: 14, fontWeight: "800", color: "#FFFFFF" },
+  heroMiniValueHighlight: { fontSize: 16, color: "#FFFFFF", fontWeight: "900" },
 
   goalHeroCard: {
     borderRadius: 16,
@@ -707,7 +939,7 @@ const s = StyleSheet.create({
     marginBottom: 8,
   },
   goalRowHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  goalRowTitle: { flex: 1, fontSize: 14, fontWeight: "800", color: hatchColors.text.primary, marginRight: 8 },
+  goalRowTitle: { fontSize: 14, fontWeight: "800", color: hatchColors.text.primary, flexShrink: 1 },
   goalRowPercent: { fontSize: 13, fontWeight: "800", color: hatchColors.primary.default },
   goalRowMeta: { marginTop: 4, fontSize: 12, color: hatchColors.text.secondary },
   goalRowTrack: { marginTop: 8, height: 7, borderRadius: 999, backgroundColor: hatchColors.background.secondary, overflow: "hidden" },
@@ -807,9 +1039,165 @@ const s = StyleSheet.create({
   deleteBtn: { marginTop: 7, borderRadius: 10, alignItems: "center", paddingVertical: 10, backgroundColor: hatchColors.background.secondary },
   deleteBtnText: { fontSize: 13, fontWeight: "800", color: hatchColors.status.error },
 
+  favoriteToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: hatchColors.background.secondary,
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: hatchColors.border.default,
+  },
+  favoriteToggleContent: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
+  favoriteToggleText: { fontSize: 14, fontWeight: "600", color: hatchColors.text.primary },
+  favoriteCheckbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: hatchColors.border.default,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: hatchColors.background.primary,
+  },
+  favoriteCheckboxActive: {
+    borderColor: hatchColors.primary.default,
+    backgroundColor: hatchColors.primary.default,
+  },
+
   statLabel: { fontSize: 12, fontWeight: "700", color: hatchColors.text.secondary },
   statTrack: { marginTop: 5, height: 8, borderRadius: 999, backgroundColor: hatchColors.background.secondary, overflow: "hidden" },
   statFill: { height: "100%", borderRadius: 999, backgroundColor: hatchColors.primary.default },
   statValue: { marginTop: 4, fontSize: 12, color: hatchColors.text.tertiary },
   statHint: { marginTop: 2, fontSize: 12, color: hatchColors.text.secondary },
+
+  statsTabs: {
+    flexDirection: "row",
+    backgroundColor: hatchColors.background.secondary,
+    borderRadius: 10,
+    padding: 4,
+    marginBottom: 16,
+    gap: 4,
+  },
+  statsTab: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: "transparent",
+  },
+  statsTabActive: {
+    backgroundColor: "#FFFFFF",
+    ...hatchShadows.sm,
+  },
+  statsTabText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: hatchColors.text.secondary,
+  },
+  statsTabTextActive: {
+    color: hatchColors.text.primary,
+  },
+  statsContent: {
+    maxHeight: 400,
+  },
+  advancedStatsTitle: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: hatchColors.text.tertiary,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  advancedStatCard: {
+    backgroundColor: hatchColors.background.secondary,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: hatchColors.border.default,
+  },
+  advancedStatCardHighlight: {
+    backgroundColor: hatchColors.primary.muted,
+    borderColor: hatchColors.primary.default,
+    borderWidth: 2,
+  },
+  advancedStatLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: hatchColors.text.secondary,
+    marginBottom: 4,
+  },
+  advancedStatValue: {
+    fontSize: 24,
+    fontWeight: "800",
+    color: hatchColors.text.primary,
+    marginBottom: 2,
+  },
+  advancedStatMeta: {
+    fontSize: 11,
+    fontWeight: "500",
+    color: hatchColors.text.tertiary,
+  },
+
+  recurringEventCard: {
+    backgroundColor: hatchColors.background.secondary,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: hatchColors.border.default,
+  },
+  recurringEventHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginBottom: 8,
+    gap: 8,
+  },
+  recurringEventTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: hatchColors.text.primary,
+    marginBottom: 2,
+  },
+  recurringEventDate: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: hatchColors.text.secondary,
+  },
+  recurringEventBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: hatchColors.primary.muted,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  recurringEventBadgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: hatchColors.primary.default,
+    textTransform: "uppercase",
+  },
+  recurringEventAmount: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: hatchColors.primary.default,
+  },
+  recurringEmptyState: {
+    padding: 24,
+    alignItems: "center",
+  },
+  recurringEmptyText: {
+    fontSize: 14,
+    color: hatchColors.text.secondary,
+  },
 });

@@ -1,4 +1,4 @@
-﻿import { currencies, CurrencyCode, formatCurrency } from "@/constants/currencies";
+import { currencies, CurrencyCode, formatCurrency } from "@/constants/currencies";
 import { hatchColors, hatchShadows } from "@/constants/theme";
 import { useStreak } from "@/hooks/use-streak";
 import { useApp } from "@/lib/app-context";
@@ -220,18 +220,20 @@ export default function ProfileScreen() {
 
   return (
     <View style={s.root}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{
-          paddingTop: insets.top + 14,
-          paddingBottom: insets.bottom + 24,
-          paddingHorizontal: 20,
-        }}
-      >
+      <View style={[s.stickyHeader, { paddingTop: insets.top + 14, paddingHorizontal: 20 }]}>
         <Animated.View entering={FadeInDown.duration(300)}>
           <Text style={s.title}>Settings</Text>
           <Text style={s.subtitle}>Everything important in one place.</Text>
         </Animated.View>
+      </View>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{
+          paddingTop: 14,
+          paddingBottom: insets.bottom + 24,
+          paddingHorizontal: 20,
+        }}
+      >
 
         <Animated.View entering={FadeInDown.delay(40).duration(300)} style={s.profileCard}>
           <View style={s.avatar}><Text style={s.avatarText}>{initials}</Text></View>
@@ -489,6 +491,7 @@ function SettingToggle({
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: hatchColors.background.primary },
+  stickyHeader: { backgroundColor: hatchColors.background.primary, paddingBottom: 14, zIndex: 10 },
   title: { fontSize: 30, fontWeight: "800", color: hatchColors.text.primary },
   subtitle: { marginTop: 4, fontSize: 13, color: hatchColors.text.secondary },
 
