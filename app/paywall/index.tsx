@@ -64,10 +64,17 @@ export default function PaywallScreen() {
 
   const loadOfferings = async () => {
     try {
+      console.log("[Paywall] Loading offerings from RevenueCat...");
       const offerings = await getOfferings();
+      console.log("[Paywall] Offerings result:", offerings ? "received" : "NULL");
+      console.log("[Paywall] Current offering:", offerings?.current?.identifier ?? "NONE");
 
       if (offerings?.current) {
         const availablePackages = offerings.current.availablePackages;
+        console.log("[Paywall] Available packages:", availablePackages.length);
+        availablePackages.forEach((pkg: any, i: number) => {
+          console.log(`[Paywall] Package ${i}: id=${pkg.identifier} type=${pkg.packageType} price=${pkg.product?.priceString}`);
+        });
         setPackages(availablePackages);
 
         // Auto-select lifetime package if available, else first package
@@ -75,9 +82,12 @@ export default function PaywallScreen() {
           (pkg: any) => pkg.identifier === "savvy_lifetime" || pkg.packageType === "LIFETIME"
         );
         setSelectedPackage(lifetimePackage ?? availablePackages[0] ?? null);
+        console.log("[Paywall] Selected package:", (lifetimePackage ?? availablePackages[0])?.identifier);
+      } else {
+        console.log("[Paywall] No current offering! Offerings object:", JSON.stringify(offerings));
       }
     } catch (error) {
-      console.error("Error loading offerings:", error);
+      console.error("[Paywall] Error loading offerings:", error);
       Alert.alert("Error", "Could not load subscription options. Please try again.");
     } finally {
       setIsLoadingOfferings(false);
@@ -94,7 +104,9 @@ export default function PaywallScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
+      console.log("[Paywall] Starting purchase for:", selectedPackage.identifier, selectedPackage.packageType);
       const { success, error } = await purchasePackage(selectedPackage);
+      console.log("[Paywall] Purchase result: success=", success, "error=", error);
 
       if (!success) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -103,6 +115,7 @@ export default function PaywallScreen() {
       }
 
       // Purchase succeeded through RevenueCat - update local state
+      console.log("[Paywall] Purchase succeeded! Setting premium to true.");
       await setPremium(true);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert("Success!", "Welcome to Savvy Premium!");
