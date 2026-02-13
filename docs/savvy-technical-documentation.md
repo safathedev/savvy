@@ -6,6 +6,7 @@ Dieses Dokument beschreibt den aktuellen technischen Stand des Savvy-Projekts:
 - RevenueCat-Implementierung
 
 Stand: Codebase in diesem Repository (Expo SDK 54, React Native 0.81, Stand Februar 2026).
+**Version:** 1.0.0 (Build 2)
 
 ## 1. System Overview
 
@@ -263,19 +264,41 @@ Aktuell genutzte Gating-Punkte:
 - Track-Screen: Advanced Statistics nur fuer Premium
 - Profile: Upgrade Entry Point
 
-Wichtiger technischer Hinweis:
-- `checkSubscriptionStatus()` existiert, wird aber derzeit nicht global beim App-Start synchronisiert.
-- Premium wird primaer ueber lokalen Context/AsyncStorage und Kauf-/Restore-Events gesetzt.
-- Fuer robustes Entitlement-Syncing nach Reinstall/Login ist ein Start-up Sync empfehlenswert.
+**Premium-Synchronisierung:**
+- Premium-Status wird beim App-Start und Foreground automatisch über RevenueCat synchronisiert
+- `checkSubscriptionStatus()` prüft aktive Entitlements gegen RevenueCat
+- Premium wird sowohl lokal (AsyncStorage) als auch serverseitig (RevenueCat) verwaltet
+- Bei Kauf/Restore: Sofortige lokale Aktualisierung + automatische Background-Sync
 
 ### 4.9 Produkt-IDs und Offering-Annahmen
 
-Die Integration erwartet identische IDs zwischen App und RevenueCat Dashboard:
-- `monthly`
-- `yearly`
-- `lifetime`
+Die Integration verwendet folgende Produkt-IDs (müssen exakt im RevenueCat Dashboard angelegt sein):
+- **Monthly**: `savvy_monthly:p1m` - $4.99/month
+- **Annual**: `savvy_annual:p1y` - $24.99/year
+- **Lifetime**: `savvy_lifetime` - $35.99 one-time
 
-Entitlement-Name muss zu `EXPO_PUBLIC_REVENUECAT_ENTITLEMENT_ID` passen.
+**Google Play API Key:** `goog_IHFQLPCJgsqyVfavgMAiFJfewIA` (wird im RevenueCat Dashboard unter Google Play Store Settings eingetragen, NICHT in der App)
+
+**RevenueCat SDK Keys:** Müssen in `.env` eingetragen werden:
+- `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY` - Android SDK Key aus RevenueCat Dashboard
+- `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` - iOS SDK Key aus RevenueCat Dashboard
+
+Entitlement-Name: `Savvy Pro` (konfiguriert über `EXPO_PUBLIC_REVENUECAT_ENTITLEMENT_ID`)
+
+### 4.10 Automatische Premium-Synchronisierung
+
+**Implementierung:** `RevenueCatSync` Component in `app/_layout.tsx`
+
+Premium-Status wird automatisch mit RevenueCat synchronisiert:
+1. **Bei App-Start**: `checkSubscriptionStatus()` prüft `customerInfo.entitlements.active["Savvy Pro"]`
+2. **Bei Foreground**: Wenn App aus Background zurückkommt, erneute Synchronisation
+3. **Nach Kauf/Restore**: Sofortige lokale Aktualisierung + automatische Sync
+
+**Vorteile:**
+- Premium bleibt über Geräte hinweg synchronisiert
+- Ablauf von Abos wird automatisch erkannt
+- Bei Neuinstallation wird Premium wiederhergestellt
+- Keine manuelle "Restore Purchases" nötig (läuft automatisch)
 
 ## 5. Notifications und Engagement (technisch)
 

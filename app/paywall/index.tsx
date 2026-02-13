@@ -24,8 +24,6 @@ import {
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-const DUMMY_MODE = process.env.EXPO_PUBLIC_REVENUECAT_DUMMY !== "false";
-
 const premiumFeatures = [
   {
     icon: "school",
@@ -66,53 +64,17 @@ export default function PaywallScreen() {
 
   const loadOfferings = async () => {
     try {
-      // In dummy mode, create mock packages
-      if (DUMMY_MODE) {
-        // Order and identifiers must match RevenueCat
-        const mockPackages: any[] = [
-          {
-            identifier: "savvy_lifetime",
-            packageType: "LIFETIME",
-            product: {
-              identifier: "savvy_lifetime",
-              priceString: PRODUCTS.LIFETIME.price,
-              description: PRODUCTS.LIFETIME.description,
-            },
-          },
-          {
-            identifier: "savvy_annual:p1y",
-            packageType: "ANNUAL",
-            product: {
-              identifier: "savvy_annual:p1y",
-              priceString: PRODUCTS.ANNUAL.price,
-              description: PRODUCTS.ANNUAL.description,
-            },
-          },
-          {
-            identifier: "savvy_monthly:p1m",
-            packageType: "MONTHLY",
-            product: {
-              identifier: "savvy_monthly:p1m",
-              priceString: PRODUCTS.MONTHLY.price,
-              description: PRODUCTS.MONTHLY.description,
-            },
-          },
-        ];
-        setPackages(mockPackages);
-        setSelectedPackage(mockPackages[0]);
-      } else {
-        const offerings = await getOfferings();
-        
-        if (offerings?.current) {
-          const availablePackages = offerings.current.availablePackages;
-          setPackages(availablePackages);
-          
-          // Auto-select lifetime package if available, else first package
-          const lifetimePackage = availablePackages.find(
-            (pkg: any) => pkg.identifier === "savvy_lifetime" || pkg.packageType === "LIFETIME"
-          );
-          setSelectedPackage(lifetimePackage ?? availablePackages[0] ?? null);
-        }
+      const offerings = await getOfferings();
+
+      if (offerings?.current) {
+        const availablePackages = offerings.current.availablePackages;
+        setPackages(availablePackages);
+
+        // Auto-select lifetime package if available, else first package
+        const lifetimePackage = availablePackages.find(
+          (pkg: any) => pkg.identifier === "savvy_lifetime" || pkg.packageType === "LIFETIME"
+        );
+        setSelectedPackage(lifetimePackage ?? availablePackages[0] ?? null);
       }
     } catch (error) {
       console.error("Error loading offerings:", error);
@@ -140,6 +102,7 @@ export default function PaywallScreen() {
         return;
       }
 
+      // Purchase succeeded through RevenueCat - update local state
       await setPremium(true);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert("Success!", "Welcome to Savvy Premium!");
@@ -179,37 +142,43 @@ export default function PaywallScreen() {
     }
   };
 
-  // Format price from package
+  // Format price from package (uses real price from RevenueCat)
   const formatPrice = (pkg: PurchasesPackage): string => {
-    return pkg.product.priceString;
+    return pkg.product?.priceString ?? "";
   };
 
   // Get package display name
   const getPackageName = (pkg: PurchasesPackage): string => {
-    if (pkg.identifier === "savvy_monthly:p1m" || pkg.packageType === "MONTHLY") {
+    if (pkg.packageType === "MONTHLY" || pkg.identifier?.includes("monthly")) {
       return "Monthly";
     }
-    if (pkg.identifier === "savvy_annual:p1y" || pkg.packageType === "ANNUAL") {
+    if (pkg.packageType === "ANNUAL" || pkg.identifier?.includes("annual")) {
       return "Annual";
     }
-    if (pkg.identifier === "savvy_lifetime" || pkg.packageType === "LIFETIME") {
+    if (pkg.packageType === "LIFETIME" || pkg.identifier?.includes("lifetime")) {
       return "Lifetime";
     }
-    return pkg.identifier;
+    return pkg.identifier ?? "Premium";
   };
 
   // Get package description
   const getPackageDescription = (pkg: PurchasesPackage): string => {
-    if (pkg.identifier === "savvy_monthly:p1m" || pkg.packageType === "MONTHLY") {
+    if (pkg.packageType === "MONTHLY" || pkg.identifier?.includes("monthly")) {
       return "Renews every month";
     }
-    if (pkg.identifier === "savvy_annual:p1y" || pkg.packageType === "ANNUAL") {
+    if (pkg.packageType === "ANNUAL" || pkg.identifier?.includes("annual")) {
       return "Renews every year";
     }
-    if (pkg.identifier === "savvy_lifetime" || pkg.packageType === "LIFETIME") {
+    if (pkg.packageType === "LIFETIME" || pkg.identifier?.includes("lifetime")) {
       return "Pay once, own forever";
     }
-    return pkg.product.description || "Premium access";
+    return pkg.product?.description || "Premium access";
+  };
+
+  // Check if package is a subscription (monthly or annual)
+  const isSubscription = (pkg: PurchasesPackage): boolean => {
+    return pkg.packageType === "MONTHLY" || pkg.packageType === "ANNUAL" ||
+           pkg.identifier?.includes("monthly") || pkg.identifier?.includes("annual");
   };
 
   return (
@@ -532,6 +501,3 @@ const s = StyleSheet.create({
     color: "#FFFFFF",
   },
 });
-
-
-

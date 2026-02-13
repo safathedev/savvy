@@ -56,16 +56,9 @@ export default function RootLayout() {
   }, [loaded, error]);
 
   useEffect(() => {
-    // Initialize RevenueCat and sync premium status
-    const initRevenueCat = async () => {
-      try {
-        await initializePurchases();
-      } catch (error) {
-        console.warn("RevenueCat initialization failed, using dummy mode");
-      }
-    };
-    
-    initRevenueCat();
+    initializePurchases().catch((error) => {
+      console.error("RevenueCat initialization failed:", error);
+    });
   }, []);
 
   if (!loaded && !error) {
