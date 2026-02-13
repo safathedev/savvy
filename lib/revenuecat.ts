@@ -46,13 +46,16 @@ export const PRODUCTS = {
 
 export type ProductType = keyof typeof PRODUCTS;
 
-const ENTITLEMENT_ID = process.env.EXPO_PUBLIC_REVENUECAT_ENTITLEMENT_ID || "Savvy Pro";
+// RevenueCat configuration - hardcoded for production
+const REVENUECAT_ANDROID_API_KEY = "goog_IHFQLPCJgsqyVfavgMAiFJfewIA";
+const REVENUECAT_IOS_API_KEY = ""; // Add iOS key when available
+const ENTITLEMENT_ID = "Savvy Pro";
 
 let initialized = false;
 
 function getApiKey(): string {
-  if (Platform.OS === "ios") return process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY || "";
-  if (Platform.OS === "android") return process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY || "";
+  if (Platform.OS === "ios") return REVENUECAT_IOS_API_KEY;
+  if (Platform.OS === "android") return REVENUECAT_ANDROID_API_KEY;
   return "";
 }
 
