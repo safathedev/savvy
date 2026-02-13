@@ -1,7 +1,7 @@
 // RevenueCat integration layer for Savvy.
 // Production implementation - all purchases go through RevenueCat SDK.
 
-import { Alert, Platform } from "react-native";
+import { Platform } from "react-native";
 
 // ===== DEBUG LOGGING =====
 const RC_DEBUG = true; // Set to false after confirming RevenueCat works
@@ -14,10 +14,10 @@ function rcError(tag: string, ...args: any[]) {
   console.error(`[RC:${tag}]`, ...args);
 }
 
-// Show visible alert for critical debug info (remove after testing!)
+// Log critical debug info
 function rcAlert(title: string, message: string) {
   if (RC_DEBUG) {
-    Alert.alert(`[RC Debug] ${title}`, message);
+    console.warn(`[RC:ALERT] ${title}: ${message}`);
   }
 }
 
