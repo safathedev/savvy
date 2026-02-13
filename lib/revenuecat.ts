@@ -1,18 +1,27 @@
 // RevenueCat integration layer for Savvy.
 // Production implementation - all purchases go through RevenueCat SDK.
 
-import { Platform } from "react-native";
+import { Alert, Platform } from "react-native";
 
 // ===== DEBUG LOGGING =====
 const RC_DEBUG = true; // Set to false after confirming RevenueCat works
+
 function rcLog(tag: string, ...args: any[]) {
-  if (RC_DEBUG) console.log(`[RevenueCat:${tag}]`, ...args);
-}
-function rcError(tag: string, ...args: any[]) {
-  console.error(`[RevenueCat:${tag}]`, ...args);
+  if (RC_DEBUG) console.log(`[RC:${tag}]`, ...args);
 }
 
-// Import RevenueCat SDK
+function rcError(tag: string, ...args: any[]) {
+  console.error(`[RC:${tag}]`, ...args);
+}
+
+// Show visible alert for critical debug info (remove after testing!)
+function rcAlert(title: string, message: string) {
+  if (RC_DEBUG) {
+    Alert.alert(`[RC Debug] ${title}`, message);
+  }
+}
+
+// ===== IMPORT RevenueCat SDK =====
 let Purchases: any = null;
 let LOG_LEVEL: any = null;
 let PURCHASES_ERROR_CODE: any = null;
@@ -22,10 +31,10 @@ try {
   Purchases = purchasesModule.default || purchasesModule;
   LOG_LEVEL = purchasesModule.LOG_LEVEL;
   PURCHASES_ERROR_CODE = purchasesModule.PURCHASES_ERROR_CODE;
-  rcLog("IMPORT", "SDK loaded successfully. Purchases object:", typeof Purchases);
-  rcLog("IMPORT", "Available methods:", Purchases ? Object.keys(Purchases).slice(0, 20).join(", ") : "NONE");
-} catch (error) {
-  rcError("IMPORT", "SDK FAILED TO LOAD! Purchases will NOT work!", error);
+  rcLog("IMPORT", "SDK loaded. Type:", typeof Purchases, "Is null:", Purchases === null);
+} catch (error: any) {
+  rcError("IMPORT", "SDK FAILED TO LOAD!", error?.message);
+  // This will happen in Expo Go - native module not available
 }
 
 // Type definitions
@@ -63,6 +72,7 @@ const REVENUECAT_IOS_API_KEY = ""; // Add iOS key when available
 const ENTITLEMENT_ID = "Savvy Pro";
 
 let initialized = false;
+let configureSucceeded = false;
 
 function getApiKey(): string {
   if (Platform.OS === "ios") return REVENUECAT_IOS_API_KEY;
@@ -79,12 +89,12 @@ function hasActiveEntitlement(customerInfo: CustomerInfo): boolean {
   const allEntitlements = customerInfo?.entitlements?.all;
   const activeEntitlements = customerInfo?.entitlements?.active;
 
-  rcLog("ENTITLEMENT", "Looking for entitlement:", ENTITLEMENT_ID);
-  rcLog("ENTITLEMENT", "All entitlements:", JSON.stringify(allEntitlements, null, 2));
-  rcLog("ENTITLEMENT", "Active entitlements:", JSON.stringify(activeEntitlements, null, 2));
+  rcLog("ENTITLEMENT", "Looking for:", ENTITLEMENT_ID);
+  rcLog("ENTITLEMENT", "All:", JSON.stringify(allEntitlements));
+  rcLog("ENTITLEMENT", "Active:", JSON.stringify(activeEntitlements));
 
   const isActive = Boolean(activeEntitlements?.[ENTITLEMENT_ID]);
-  rcLog("ENTITLEMENT", `"${ENTITLEMENT_ID}" active:`, isActive);
+  rcLog("ENTITLEMENT", "Result:", isActive);
 
   return isActive;
 }
@@ -93,56 +103,58 @@ function hasActiveEntitlement(customerInfo: CustomerInfo): boolean {
  * Initialize RevenueCat SDK
  */
 export async function initializePurchases(): Promise<void> {
-  rcLog("INIT", "initializePurchases called. Already initialized:", initialized);
+  if (initialized) {
+    rcLog("INIT", "Already initialized. configure succeeded:", configureSucceeded);
+    return;
+  }
 
-  if (initialized) return;
+  rcLog("INIT", "Starting initialization...");
+  rcLog("INIT", "Purchases SDK available:", !!Purchases);
+  rcLog("INIT", "Platform:", Platform.OS);
 
   if (!Purchases) {
-    rcError("INIT", "Purchases SDK is NULL - SDK was not imported! This is a critical error.");
+    rcError("INIT", "SDK NOT AVAILABLE! Are you running in Expo Go? Need a dev/production build!");
+    rcAlert("SDK Not Available", "react-native-purchases is not loaded. You need a development or production build (not Expo Go).");
     initialized = true;
     return;
   }
 
   const apiKey = getApiKey();
-  rcLog("INIT", "Platform:", Platform.OS);
-  rcLog("INIT", "API Key:", apiKey ? `${apiKey.substring(0, 10)}...` : "EMPTY!");
+  rcLog("INIT", "API Key:", apiKey ? `${apiKey.substring(0, 15)}...` : "EMPTY!");
 
   if (!apiKey) {
-    rcError("INIT", "API key is empty! Cannot initialize RevenueCat.");
+    rcError("INIT", "API key is empty!");
+    rcAlert("No API Key", `No API key for platform: ${Platform.OS}`);
     initialized = true;
     return;
   }
 
   try {
-    // Always enable debug logging for now to diagnose issues
+    // Enable DEBUG logging in RevenueCat SDK itself
     if (LOG_LEVEL) {
-      rcLog("INIT", "Setting log level to DEBUG");
       Purchases.setLogLevel(LOG_LEVEL.DEBUG);
+      rcLog("INIT", "Log level set to DEBUG");
     }
 
-    rcLog("INIT", "Calling Purchases.configure()...");
-    await Purchases.configure({ apiKey });
-    rcLog("INIT", "Purchases.configure() succeeded!");
+    rcLog("INIT", "Calling Purchases.configure({ apiKey })...");
+    Purchases.configure({ apiKey });
+    configureSucceeded = true;
+    rcLog("INIT", "configure() completed!");
 
-    // Enable automatic collection of Apple Search Ads attribution (iOS only)
-    if (Platform.OS === "ios" && Purchases.enableAdServicesAttributionTokenCollection) {
-      Purchases.enableAdServicesAttributionTokenCollection();
-    }
-
-    // Verify initialization by getting customer info
+    // Verify by fetching customer info
     try {
       const info = await Purchases.getCustomerInfo();
-      rcLog("INIT", "Customer ID:", info?.originalAppUserId);
-      rcLog("INIT", "Active entitlements:", JSON.stringify(info?.entitlements?.active, null, 2));
-      rcLog("INIT", "All subscriptions:", JSON.stringify(info?.activeSubscriptions, null, 2));
-    } catch (verifyError) {
-      rcLog("INIT", "Post-init verification failed (non-fatal):", verifyError);
+      rcLog("INIT", "Verification - Customer ID:", info?.originalAppUserId);
+      rcLog("INIT", "Verification - Active entitlements:", JSON.stringify(info?.entitlements?.active));
+    } catch (e: any) {
+      rcLog("INIT", "Verification failed (non-fatal):", e?.message);
     }
 
     initialized = true;
-    rcLog("INIT", "RevenueCat initialized successfully!");
-  } catch (error) {
-    rcError("INIT", "Failed to initialize RevenueCat:", error);
+    rcLog("INIT", "SUCCESS! RevenueCat is ready.");
+  } catch (error: any) {
+    rcError("INIT", "FAILED:", error?.message, error);
+    rcAlert("Init Failed", `RevenueCat configure() failed: ${error?.message}`);
     initialized = true;
   }
 }
@@ -151,19 +163,16 @@ export async function initializePurchases(): Promise<void> {
  * Check if user has active premium subscription via RevenueCat
  */
 export async function checkSubscriptionStatus(): Promise<boolean> {
-  rcLog("STATUS", "checkSubscriptionStatus called. Purchases available:", !!Purchases);
+  rcLog("STATUS", "Checking. SDK available:", !!Purchases, "Configured:", configureSucceeded);
 
-  if (!Purchases) return false;
+  if (!Purchases || !configureSucceeded) return false;
 
   try {
     await initializePurchases();
     const customerInfo = await Purchases.getCustomerInfo();
-    rcLog("STATUS", "Got customer info for:", customerInfo?.originalAppUserId);
-    const result = hasActiveEntitlement(customerInfo);
-    rcLog("STATUS", "Premium status:", result);
-    return result;
-  } catch (error) {
-    rcError("STATUS", "Error checking subscription status:", error);
+    return hasActiveEntitlement(customerInfo);
+  } catch (error: any) {
+    rcError("STATUS", "Error:", error?.message);
     return false;
   }
 }
@@ -172,39 +181,46 @@ export async function checkSubscriptionStatus(): Promise<boolean> {
  * Get current offerings from RevenueCat
  */
 export async function getOfferings(): Promise<PurchasesOfferings | null> {
-  rcLog("OFFERINGS", "getOfferings called. Purchases available:", !!Purchases);
+  rcLog("OFFERINGS", "Getting offerings. SDK:", !!Purchases, "Configured:", configureSucceeded);
 
   if (!Purchases) {
-    rcError("OFFERINGS", "Purchases SDK is null - cannot load offerings");
+    rcAlert("No SDK", "Cannot load offerings - SDK not available");
     return null;
   }
 
   try {
     await initializePurchases();
-    rcLog("OFFERINGS", "Fetching offerings from RevenueCat...");
+
+    if (!configureSucceeded) {
+      rcAlert("Not Configured", "SDK loaded but configure() failed - cannot fetch offerings");
+      return null;
+    }
+
+    rcLog("OFFERINGS", "Calling Purchases.getOfferings()...");
     const offerings = await Purchases.getOfferings();
 
+    const pkgCount = offerings?.current?.availablePackages?.length ?? 0;
     rcLog("OFFERINGS", "Current offering:", offerings?.current?.identifier ?? "NONE");
-    rcLog("OFFERINGS", "Available packages count:", offerings?.current?.availablePackages?.length ?? 0);
+    rcLog("OFFERINGS", "Package count:", pkgCount);
 
-    if (offerings?.current?.availablePackages) {
-      offerings.current.availablePackages.forEach((pkg: any, i: number) => {
-        rcLog("OFFERINGS", `Package ${i}:`, {
-          identifier: pkg.identifier,
-          packageType: pkg.packageType,
-          productId: pkg.product?.identifier,
-          price: pkg.product?.priceString,
-          title: pkg.product?.title,
-        });
-      });
+    if (pkgCount === 0) {
+      rcAlert("No Packages",
+        `Offerings loaded but no packages found!\n` +
+        `Current offering: ${offerings?.current?.identifier ?? "NONE"}\n` +
+        `All offerings: ${JSON.stringify(Object.keys(offerings?.all ?? {}))}\n\n` +
+        `Check RevenueCat dashboard:\n1. Is there a current offering?\n2. Are products added to it?\n3. Are products active in Google Play?`
+      );
     } else {
-      rcLog("OFFERINGS", "No current offering or no packages available!");
-      rcLog("OFFERINGS", "Full offerings response:", JSON.stringify(offerings, null, 2));
+      const pkgInfo = offerings.current.availablePackages.map(
+        (p: any) => `${p.identifier} (${p.packageType}) - ${p.product?.priceString}`
+      ).join("\n");
+      rcLog("OFFERINGS", "Packages:\n" + pkgInfo);
     }
 
     return offerings;
-  } catch (error) {
-    rcError("OFFERINGS", "Error fetching offerings:", error);
+  } catch (error: any) {
+    rcError("OFFERINGS", "Error:", error?.message, error);
+    rcAlert("Offerings Error", `Failed to load offerings: ${error?.message}`);
     return null;
   }
 }
@@ -215,16 +231,21 @@ export async function getOfferings(): Promise<PurchasesOfferings | null> {
 export async function purchasePackage(
   packageToPurchase: PurchasesPackage | string
 ): Promise<{ success: boolean; error?: string; customerInfo?: CustomerInfo }> {
-  rcLog("PURCHASE", "purchasePackage called");
-  rcLog("PURCHASE", "Package type:", typeof packageToPurchase);
-  rcLog("PURCHASE", "Package value:", typeof packageToPurchase === "string"
+  const pkgInfo = typeof packageToPurchase === "string"
     ? packageToPurchase
-    : { identifier: packageToPurchase?.identifier, packageType: packageToPurchase?.packageType, productId: packageToPurchase?.product?.identifier }
-  );
+    : `${packageToPurchase?.identifier} (${packageToPurchase?.packageType})`;
+
+  rcLog("PURCHASE", "Starting purchase for:", pkgInfo);
+  rcLog("PURCHASE", "SDK:", !!Purchases, "Configured:", configureSucceeded);
 
   if (!Purchases) {
-    rcError("PURCHASE", "Purchases SDK is null - cannot process purchase!");
-    return { success: false, error: "RevenueCat SDK not available" };
+    rcAlert("Purchase Failed", "RevenueCat SDK not available. Build the app with EAS, not Expo Go.");
+    return { success: false, error: "RevenueCat SDK not available. Use a production build." };
+  }
+
+  if (!configureSucceeded) {
+    rcAlert("Purchase Failed", "RevenueCat not configured. Check API key.");
+    return { success: false, error: "RevenueCat not configured" };
   }
 
   try {
@@ -233,12 +254,11 @@ export async function purchasePackage(
     let purchaseResult;
 
     if (typeof packageToPurchase === "string") {
-      rcLog("PURCHASE", "String ID provided, looking up package in offerings...");
+      rcLog("PURCHASE", "Looking up package by ID:", packageToPurchase);
       const offerings = await getOfferings();
       const currentOffering = offerings?.current;
 
       if (!currentOffering) {
-        rcError("PURCHASE", "No current offering available!");
         return { success: false, error: "No offerings available" };
       }
 
@@ -247,49 +267,51 @@ export async function purchasePackage(
       );
 
       if (!packageObj) {
-        rcError("PURCHASE", "Package not found for ID:", packageToPurchase);
-        rcLog("PURCHASE", "Available IDs:", currentOffering.availablePackages.map((p: any) => p.identifier));
         return { success: false, error: "Package not found" };
       }
 
-      rcLog("PURCHASE", "Found package, calling Purchases.purchasePackage()...");
+      rcLog("PURCHASE", "Calling Purchases.purchasePackage() with found package...");
       purchaseResult = await Purchases.purchasePackage(packageObj);
     } else {
-      rcLog("PURCHASE", "Package object provided, calling Purchases.purchasePackage()...");
+      rcLog("PURCHASE", "Calling Purchases.purchasePackage() with package object...");
+      rcLog("PURCHASE", "Product ID:", packageToPurchase?.product?.identifier);
       purchaseResult = await Purchases.purchasePackage(packageToPurchase);
     }
 
-    rcLog("PURCHASE", "purchasePackage() returned!");
-    rcLog("PURCHASE", "Purchase result keys:", Object.keys(purchaseResult || {}));
+    rcLog("PURCHASE", "purchasePackage() returned successfully!");
 
     const { customerInfo } = purchaseResult;
-    rcLog("PURCHASE", "Customer ID after purchase:", customerInfo?.originalAppUserId);
-    rcLog("PURCHASE", "Active subscriptions:", JSON.stringify(customerInfo?.activeSubscriptions, null, 2));
-    rcLog("PURCHASE", "Non-subscription transactions:", JSON.stringify(customerInfo?.nonSubscriptionTransactions, null, 2));
+    rcLog("PURCHASE", "Customer ID:", customerInfo?.originalAppUserId);
+    rcLog("PURCHASE", "Active subs:", JSON.stringify(customerInfo?.activeSubscriptions));
+    rcLog("PURCHASE", "Non-sub transactions:", JSON.stringify(customerInfo?.nonSubscriptionTransactions));
 
     const isEntitled = hasActiveEntitlement(customerInfo);
-    rcLog("PURCHASE", "Has entitlement after purchase:", isEntitled);
+
+    if (!isEntitled) {
+      rcAlert("Purchase Note",
+        `Payment went through but entitlement "${ENTITLEMENT_ID}" is NOT active.\n\n` +
+        `Active entitlements: ${JSON.stringify(customerInfo?.entitlements?.active)}\n\n` +
+        `Check RevenueCat dashboard: Is "${ENTITLEMENT_ID}" linked to the product?`
+      );
+    }
 
     return {
       success: isEntitled,
       customerInfo,
-      error: isEntitled
-        ? undefined
-        : "Purchase completed but entitlement not active. Check RevenueCat entitlement name matches: " + ENTITLEMENT_ID,
+      error: isEntitled ? undefined : `Entitlement "${ENTITLEMENT_ID}" not active after purchase`,
     };
   } catch (error: any) {
-    rcError("PURCHASE", "Purchase error! Code:", error?.code, "Message:", error?.message);
-    rcError("PURCHASE", "Full error:", JSON.stringify(error, null, 2));
+    rcError("PURCHASE", "Error:", error?.code, error?.message);
 
     if (PURCHASES_ERROR_CODE && error.code === PURCHASES_ERROR_CODE.PURCHASE_CANCELLED_ERROR) {
-      rcLog("PURCHASE", "User cancelled purchase");
       return { success: false, error: "Purchase cancelled" };
     }
 
     if (PURCHASES_ERROR_CODE && error.code === PURCHASES_ERROR_CODE.PRODUCT_ALREADY_PURCHASED_ERROR) {
-      rcLog("PURCHASE", "Product already purchased");
       return { success: false, error: "You already own this product" };
     }
+
+    rcAlert("Purchase Error", `Code: ${error?.code}\nMessage: ${error?.message}`);
 
     return {
       success: false,
@@ -306,31 +328,21 @@ export async function restorePurchases(): Promise<{
   hasPremium: boolean;
   customerInfo?: CustomerInfo;
 }> {
-  rcLog("RESTORE", "restorePurchases called. Purchases available:", !!Purchases);
+  rcLog("RESTORE", "Starting. SDK:", !!Purchases, "Configured:", configureSucceeded);
 
-  if (!Purchases) {
-    rcError("RESTORE", "Purchases SDK is null");
+  if (!Purchases || !configureSucceeded) {
     return { success: false, hasPremium: false };
   }
 
   try {
     await initializePurchases();
-    rcLog("RESTORE", "Calling Purchases.restorePurchases()...");
     const customerInfo = await Purchases.restorePurchases();
-
-    rcLog("RESTORE", "Restore completed. Customer ID:", customerInfo?.originalAppUserId);
-    rcLog("RESTORE", "Active entitlements:", JSON.stringify(customerInfo?.entitlements?.active, null, 2));
-
     const hasPremium = hasActiveEntitlement(customerInfo);
-    rcLog("RESTORE", "Has premium after restore:", hasPremium);
+    rcLog("RESTORE", "Result:", hasPremium);
 
-    return {
-      success: true,
-      hasPremium,
-      customerInfo,
-    };
-  } catch (error) {
-    rcError("RESTORE", "Restore error:", error);
+    return { success: true, hasPremium, customerInfo };
+  } catch (error: any) {
+    rcError("RESTORE", "Error:", error?.message);
     return { success: false, hasPremium: false };
   }
 }
@@ -339,30 +351,27 @@ export async function restorePurchases(): Promise<{
  * Get customer info from RevenueCat
  */
 export async function getCustomerInfo(): Promise<CustomerInfo | null> {
-  if (!Purchases) return null;
+  if (!Purchases || !configureSucceeded) return null;
 
   try {
     await initializePurchases();
-    const customerInfo = await Purchases.getCustomerInfo();
-    rcLog("INFO", "Customer info:", customerInfo?.originalAppUserId);
-    return customerInfo;
-  } catch (error) {
-    rcError("INFO", "Error getting customer info:", error);
+    return await Purchases.getCustomerInfo();
+  } catch (error: any) {
+    rcError("INFO", "Error:", error?.message);
     return null;
   }
 }
 
 /**
- * Set custom user ID (optional - for cross-platform tracking)
+ * Set custom user ID
  */
 export async function identifyUser(userId: string): Promise<void> {
-  if (!Purchases) return;
-
+  if (!Purchases || !configureSucceeded) return;
   try {
     await initializePurchases();
     await Purchases.logIn(userId);
-  } catch (error) {
-    rcError("IDENTIFY", "Error identifying user:", error);
+  } catch (error: any) {
+    rcError("IDENTIFY", "Error:", error?.message);
   }
 }
 
@@ -370,13 +379,12 @@ export async function identifyUser(userId: string): Promise<void> {
  * Log out current user
  */
 export async function logoutUser(): Promise<void> {
-  if (!Purchases) return;
-
+  if (!Purchases || !configureSucceeded) return;
   try {
     await initializePurchases();
     await Purchases.logOut();
-  } catch (error) {
-    rcError("LOGOUT", "Error logging out user:", error);
+  } catch (error: any) {
+    rcError("LOGOUT", "Error:", error?.message);
   }
 }
 
